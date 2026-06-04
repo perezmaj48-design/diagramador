@@ -183,8 +183,11 @@
       const [selectedNodes, setSelectedNodes] = useState(new Set());
       const [toast, setToast] = useState('');
       const [activeMenu, setActiveMenu] = useState(null);
+      
       const [showSaveModal, setShowSaveModal] = useState(false);
       const [fileName, setFileName] = useState('mi_diagrama');
+      const [fileHandle, setFileHandle] = useState(null); // Nuevo estado para el "guardado silencioso"
+      
       const [showNewModal, setShowNewModal] = useState(false);
       const fileInputRef = useRef(null);
 
@@ -244,6 +247,8 @@
         setSelectedNodes(new Set());
         setSelectionBox(null);
         setActiveMenu(null);
+        setFileName('mi_diagrama');
+        setFileHandle(null); // Reseteamos el archivo actual
         setShowNewModal(false);
         setToast('Nuevo diagrama creado');
         setTimeout(() => setToast(''), 3000);
@@ -274,6 +279,11 @@
           if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodes.size > 0) {
             if (document.activeElement.isContentEditable || document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
             handleDeleteSelected();
+          }
+          // Atajo rápido: Ctrl+S o Cmd+S para guardar machacando
+          if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            handleSaveClick();
           }
         };
         window.addEventListener('keydown', handleKeyDown);
@@ -359,18 +369,33 @@
         }
       }, [dragInfo, selectionBox, visibleNodes]);
 
+      // --- SISTEMA DE GUARDADO SILENCIOSO (MACHACAR) ---
       const handleSaveClick = async () => {
         const data = { nodes, edges, collapsedNodes: Array.from(collapsedNodes), pan };
         const jsonString = JSON.stringify(data, null, 2);
         try {
           if (window.showSaveFilePicker) {
-            const fileHandle = await window.showSaveFilePicker({ suggestedName: 'mi_diagrama.json', types: [{ description: 'Archivo JSON', accept: { 'application/json': ['.json'] } }] });
-            const writable = await fileHandle.createWritable();
+            let handle = fileHandle; // Intentamos usar el handle que ya tenemos memorizado
+            
+            // Si NO tenemos un handle (archivo nuevo), sacamos el explorador para que el usuario elija dónde guardarlo
+            if (!handle) {
+              handle = await window.showSaveFilePicker({ 
+                suggestedName: `${fileName}.json`, 
+                types: [{ description: 'Archivo JSON', accept: { 'application/json': ['.json'] } }] 
+              });
+              setFileHandle(handle); // Guardamos la referencia para que las próximas veces machaque directamente
+              setFileName(handle.name.replace(/\.json$/, ''));
+            }
+            
+            // Si tenemos handle (sea nuevo o de antes), escribimos directamente (Machaca)
+            const writable = await handle.createWritable();
             await writable.write(jsonString);
             await writable.close();
-            setToast('¡Diagrama guardado correctamente!');
+            
+            setToast(`¡Diagrama guardado en ${handle.name}!`);
             setTimeout(() => setToast(''), 3000);
           } else {
+            // Fallback antiguo si su navegador no es compatible
             setShowSaveModal(true);
           }
         } catch (error) {
@@ -391,6 +416,38 @@
         setTimeout(() => setToast(''), 3000);
       };
 
+      // --- SISTEMA DE CARGA QUE OBTIENE LA REFERENCIA AL ARCHIVO ---
+      const handleLoadClick = async () => {
+        if (window.showOpenFilePicker) {
+          try {
+            const [handle] = await window.showOpenFilePicker({
+              types: [{ description: 'Archivo JSON', accept: { 'application/json': ['.json'] } }]
+            });
+            const file = await handle.getFile();
+            const text = await file.text();
+            const parsed = JSON.parse(text);
+            
+            setNodes(parsed.nodes || []); 
+            setEdges(parsed.edges || []); 
+            setCollapsedNodes(new Set(parsed.collapsedNodes || []));
+            setPan(parsed.pan || {x: 0, y: 0}); 
+            setSelectedNodes(new Set()); 
+            
+            setFileHandle(handle); // ¡Clave! Recordamos qué archivo hemos abierto
+            setFileName(handle.name.replace(/\.json$/, ''));
+            
+            setToast('Trabajo cargado correctamente');
+            setTimeout(() => setToast(''), 3000);
+          } catch (error) {
+            if (error.name !== 'AbortError') setToast('Error al cargar el archivo');
+          }
+        } else {
+          // Fallback para navegadores antiguos
+          fileInputRef.current?.click();
+        }
+      };
+
+      // Fallback antiguo de carga
       const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -399,7 +456,10 @@
           try {
             const parsed = JSON.parse(event.target.result);
             setNodes(parsed.nodes || []); setEdges(parsed.edges || []); setCollapsedNodes(new Set(parsed.collapsedNodes || []));
-            setPan(parsed.pan || {x: 0, y: 0}); setSelectedNodes(new Set()); setToast('Trabajo cargado correctamente');
+            setPan(parsed.pan || {x: 0, y: 0}); setSelectedNodes(new Set()); 
+            setFileName(file.name.replace(/\.json$/, ''));
+            setFileHandle(null); // Con este método antiguo no tenemos permisos para machacar
+            setToast('Trabajo cargado correctamente');
           } catch (error) { setToast('Error: El archivo no es válido'); }
           setTimeout(() => setToast(''), 3000);
           e.target.value = '';
@@ -412,8 +472,6 @@
         let nx = sourceNode.x, ny = sourceNode.y;
         
         // Calcular los desplazamientos dependiendo de la dirección.
-        // Usamos 210 y 150 para colocar la figura al final de la cola
-        // sin confundir al algoritmo de agrupación direccional (que fallaba y causaba la línea infinita).
         if (direction === 'right') { nx += 220; ny += 210; }
         if (direction === 'left') { nx -= 220; ny += 210; }
         if (direction === 'bottom') { ny += 160; nx += 150; }
@@ -494,8 +552,8 @@
             <button className={`p-2 rounded-lg transition-all ${selectedNodes.size > 0 ? 'text-red-500 hover:bg-red-50' : 'text-slate-300 cursor-not-allowed'}`} onClick={handleDeleteSelected} disabled={selectedNodes.size === 0} title="Borrar selección (Supr)"><Trash2 size={20} /></button>
             <div className="w-px h-6 bg-slate-200 mx-1"></div>
             <button className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-all" onClick={() => setShowNewModal(true)} title="Nuevo diagrama"><FilePlus size={20} /></button>
-            <button className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-all" onClick={handleSaveClick} title="Guardar trabajo"><Save size={20} /></button>
-            <button className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-all" onClick={() => fileInputRef.current?.click()} title="Cargar trabajo"><FolderOpen size={20} /></button>
+            <button className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-all" onClick={handleSaveClick} title="Guardar (Sobrescribe si ya existe)"><Save size={20} /></button>
+            <button className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-all" onClick={handleLoadClick} title="Cargar trabajo"><FolderOpen size={20} /></button>
             <input type="file" accept=".json" style={{ display: 'none' }} ref={fileInputRef} onChange={handleFileChange} />
           </div>
 
