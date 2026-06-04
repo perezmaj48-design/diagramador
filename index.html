@@ -28,6 +28,14 @@
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
+
+    /* Estilos para ocultar la interfaz al imprimir */
+    @media print {
+      body { background: white !important; }
+      .no-print { display: none !important; }
+      /* Permite imprimir en horizontal para abarcar más diagrama */
+      @page { size: landscape; }
+    }
   </style>
 </head>
 <body class="bg-slate-50">
@@ -53,6 +61,7 @@
     const Hand = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>;
     const Save = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>;
     const FolderOpen = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg>;
+    const Printer = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>;
     const Trash2 = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>;
     const FilePlus = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/></svg>;
     const MessageSquare = ({size=24, fill="none"}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
@@ -374,14 +383,35 @@
           return;
         }
 
+        let currentSelected = selectedNodes;
         if (!selectedNodes.has(nodeId)) {
-          if (e.shiftKey) setSelectedNodes(prev => new Set([...prev, nodeId]));
-          else setSelectedNodes(new Set([nodeId]));
+          if (e.shiftKey) {
+            currentSelected = new Set([...selectedNodes, nodeId]);
+            setSelectedNodes(currentSelected);
+          } else {
+            currentSelected = new Set([nodeId]);
+            setSelectedNodes(currentSelected);
+          }
         }
+        
         if (e.target.closest('.no-drag')) { e.stopPropagation(); return; }
         e.stopPropagation();
         e.target.setPointerCapture(e.pointerId);
-        setDragInfo({ type: 'node', id: nodeId, lastX: e.clientX, lastY: e.clientY });
+        
+        // Novedad: Recopilar el nodo arrastrado y TODOS sus descendientes para que se muevan con él en bloque
+        const movingIds = new Set(currentSelected);
+        const queue = [...currentSelected];
+        while(queue.length > 0) {
+          const curr = queue.shift();
+          edges.forEach(edge => {
+            if (edge.source === curr && !movingIds.has(edge.target)) {
+              movingIds.add(edge.target);
+              queue.push(edge.target);
+            }
+          });
+        }
+
+        setDragInfo({ type: 'node', id: nodeId, movingIds, lastX: e.clientX, lastY: e.clientY });
         setActiveMenu(null);
       };
 
@@ -406,8 +436,10 @@
 
         if (dragInfo.type === 'node') {
           setNodes(prev => prev.map(n => {
-            if (selectedNodes.has(dragInfo.id) && selectedNodes.has(n.id)) return { ...n, x: n.x + dx, y: n.y + dy };
-            if (n.id === dragInfo.id) return { ...n, x: n.x + dx, y: n.y + dy };
+            // Mover el nodo si pertenece a la lista calculada de la rama arrastrada
+            if (dragInfo.movingIds && dragInfo.movingIds.has(n.id)) {
+              return { ...n, x: n.x + dx, y: n.y + dy };
+            }
             return n;
           }));
         } else if (dragInfo.type === 'canvas') {
@@ -639,7 +671,7 @@
       return (
         <div className={`w-full h-screen relative bg-slate-50 overflow-hidden font-sans select-none ${mode === 'connect' ? 'cursor-crosshair' : ''}`} onPointerDown={handlePointerDownCanvas} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}>
           
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-white/95 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.08)] rounded-xl border border-slate-200/80 p-1.5 flex gap-1 items-center" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="no-print absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-white/95 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.08)] rounded-xl border border-slate-200/80 p-1.5 flex gap-1 items-center" onPointerDown={(e) => e.stopPropagation()}>
             <button className={`p-2 rounded-lg transition-all ${mode === 'pan' ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => setMode('pan')} title="Mover Lienzo (Mano)"><Hand size={20} /></button>
             <button className={`p-2 rounded-lg transition-all ${mode === 'select' ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => setMode('select')} title="Seleccionar Grupo (Flecha)"><MousePointer2 size={20} /></button>
             <button className={`p-2 rounded-lg transition-all ${mode === 'connect' ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => setMode('connect')} title="Conectar figuras libremente"><LinkIcon size={20} /></button>
@@ -652,10 +684,11 @@
             <button className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-all" onClick={() => setShowNewModal(true)} title="Nuevo diagrama"><FilePlus size={20} /></button>
             <button className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-all" onClick={handleSaveClick} title="Guardar (Sobrescribe si ya existe)"><Save size={20} /></button>
             <button className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-all" onClick={handleLoadClick} title="Cargar trabajo"><FolderOpen size={20} /></button>
+            <button className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-all" onClick={() => window.print()} title="Imprimir diagrama"><Printer size={20} /></button>
             <input type="file" accept=".json" style={{ display: 'none' }} ref={fileInputRef} onChange={handleFileChange} />
           </div>
 
-          {toast && <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur text-white px-5 py-2.5 rounded-full shadow-lg text-sm font-medium transition-all">{toast}</div>}
+          {toast && <div className="no-print absolute bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur text-white px-5 py-2.5 rounded-full shadow-lg text-sm font-medium transition-all">{toast}</div>}
 
           <div className="absolute inset-0 z-0 pointer-events-none" style={{ backgroundImage: `radial-gradient(#cbd5e1 1.5px, transparent 1.5px)`, backgroundSize: '24px 24px', backgroundPosition: `${pan.x}px ${pan.y}px` }} />
 
@@ -740,11 +773,11 @@
           
           <div contentEditable suppressContentEditableWarning className={`no-drag absolute inset-0 m-4 flex items-center justify-center text-center outline-none focus:bg-white/30 rounded-lg transition-all font-semibold text-sm leading-snug ${mode === 'connect' ? 'pointer-events-none' : ''}`} onBlur={(e) => onTextChange(node.id, e.target.innerText)} style={{ wordBreak: 'break-word', color: palette.text }}>{node.text}</div>
           
-          {hasChildren && mode !== 'connect' && <button className="no-drag absolute -bottom-3 -right-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-md text-slate-500 hover:text-slate-800 z-30 transition-transform hover:scale-110 active:scale-95" onPointerDown={(e) => { e.stopPropagation(); onToggleCollapse(); }} title={isCollapsed ? "Expandir" : "Contraer"}>{isCollapsed ? <Plus size={14} /> : <Minus size={14} />}</button>}
+          {hasChildren && mode !== 'connect' && <button className="no-drag no-print absolute -bottom-3 -right-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-md text-slate-500 hover:text-slate-800 z-30 transition-transform hover:scale-110 active:scale-95" onPointerDown={(e) => { e.stopPropagation(); onToggleCollapse(); }} title={isCollapsed ? "Expandir" : "Contraer"}>{isCollapsed ? <Plus size={14} /> : <Minus size={14} />}</button>}
           
           {(isHovered || activeMenu?.type === 'comment' || (node.comment && node.comment.trim() !== '')) && mode !== 'connect' && (
             <button 
-              className={`no-drag absolute -top-3 -left-3 w-7 h-7 rounded-full flex items-center justify-center shadow-md z-30 transition-transform hover:scale-110 active:scale-95 border ${node.comment && node.comment.trim() !== '' ? 'bg-amber-50 border-amber-300 text-amber-500' : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800'}`} 
+              className={`no-drag no-print absolute -top-3 -left-3 w-7 h-7 rounded-full flex items-center justify-center shadow-md z-30 transition-transform hover:scale-110 active:scale-95 border ${node.comment && node.comment.trim() !== '' ? 'bg-amber-50 border-amber-300 text-amber-500' : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800'}`} 
               onPointerDown={(e) => { e.stopPropagation(); setActiveMenu(activeMenu?.type === 'comment' && activeMenu.nodeId === node.id ? null : { nodeId: node.id, type: 'comment' }); }} 
               title={node.comment && node.comment.trim() !== '' ? "Ver/Editar comentario" : "Añadir comentario"}
             >
@@ -760,7 +793,7 @@
           )}
 
           {activeMenu?.type === 'comment' && (
-            <div className="no-drag absolute z-50 bg-white/95 backdrop-blur border border-slate-200 shadow-xl rounded-xl p-3 w-56 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-2" style={{ bottom: '100%', left: '0', marginBottom: '16px' }} onPointerDown={(e) => e.stopPropagation()}>
+            <div className="no-drag no-print absolute z-50 bg-white/95 backdrop-blur border border-slate-200 shadow-xl rounded-xl p-3 w-56 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-2" style={{ bottom: '100%', left: '0', marginBottom: '16px' }} onPointerDown={(e) => e.stopPropagation()}>
               <textarea
                 className="w-full h-24 text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 placeholder-slate-400"
                 placeholder="Escribe una nota o comentario aquí..."
@@ -777,10 +810,10 @@
             </div>
           )}
           
-          {(isHovered || activeMenu?.type === 'color') && mode !== 'connect' && <button className="no-drag absolute -top-3 -right-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-md text-slate-500 hover:text-slate-800 z-30 transition-transform hover:scale-110 active:scale-95" onPointerDown={(e) => { e.stopPropagation(); setActiveMenu({ nodeId: node.id, type: 'color' }); }} title="Colorear"><Palette size={14} /></button>}
+          {(isHovered || activeMenu?.type === 'color') && mode !== 'connect' && <button className="no-drag no-print absolute -top-3 -right-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-md text-slate-500 hover:text-slate-800 z-30 transition-transform hover:scale-110 active:scale-95" onPointerDown={(e) => { e.stopPropagation(); setActiveMenu({ nodeId: node.id, type: 'color' }); }} title="Colorear"><Palette size={14} /></button>}
           
           {activeMenu?.type === 'color' && (
-            <div className="no-drag absolute -top-14 left-1/2 -translate-x-1/2 z-40 bg-white border border-slate-200/80 rounded-xl shadow-xl p-1.5 flex gap-1.5 animate-in fade-in zoom-in-95 duration-100" onPointerDown={(e) => e.stopPropagation()}>
+            <div className="no-drag no-print absolute -top-14 left-1/2 -translate-x-1/2 z-40 bg-white border border-slate-200/80 rounded-xl shadow-xl p-1.5 flex gap-1.5 animate-in fade-in zoom-in-95 duration-100" onPointerDown={(e) => e.stopPropagation()}>
               {COLORS.map(c => <button key={c} className="w-6 h-6 rounded-lg border shadow-sm hover:scale-115 active:scale-90 transition-transform" style={{ backgroundColor: c, borderColor: COLOR_MAP[c].border }} onPointerDown={(e) => { e.stopPropagation(); onColorChange(node.id, c); }} />)}
             </div>
           )}
@@ -795,7 +828,7 @@
           )}
 
           {activeMenu?.type === 'add' && (
-            <div className="no-drag absolute z-50 bg-white/95 backdrop-blur border border-slate-200 shadow-xl rounded-xl p-1.5 flex gap-1.5 animate-in fade-in zoom-in-95 duration-100" style={getMenuPos(activeMenu.direction)} onPointerDown={(e) => e.stopPropagation()}>
+            <div className="no-drag no-print absolute z-50 bg-white/95 backdrop-blur border border-slate-200 shadow-xl rounded-xl p-1.5 flex gap-1.5 animate-in fade-in zoom-in-95 duration-100" style={getMenuPos(activeMenu.direction)} onPointerDown={(e) => e.stopPropagation()}>
               <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" onPointerDown={(e) => { e.stopPropagation(); onAdd(node.id, activeMenu.direction, 'rectangle'); }} title="Añadir Rectángulo"><Square size={20} /></button>
               <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" onPointerDown={(e) => { e.stopPropagation(); onAdd(node.id, activeMenu.direction, 'circle'); }} title="Añadir Círculo"><Circle size={20} /></button>
               <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" onPointerDown={(e) => { e.stopPropagation(); onAdd(node.id, activeMenu.direction, 'pentagon'); }} title="Añadir Pentágono"><Pentagon size={20} /></button>
@@ -853,12 +886,13 @@
         return {};
       };
       return (
-        <button className="no-drag absolute z-30 bg-white border border-slate-200 rounded-full p-1 shadow-md text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 transition-all hover:scale-115 active:scale-90" style={getStyle()} onPointerDown={(e) => { e.stopPropagation(); if (e.button === 0) onLeftClick(); else if (e.button === 2) onRightClick(); }} onContextMenu={(e) => e.preventDefault()}>
+        <button className="no-drag no-print absolute z-30 bg-white border border-slate-200 rounded-full p-1 shadow-md text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 transition-all hover:scale-115 active:scale-90" style={getStyle()} onPointerDown={(e) => { e.stopPropagation(); if (e.button === 0) onLeftClick(); else if (e.button === 2) onRightClick(); }} onContextMenu={(e) => e.preventDefault()}>
           {icon}
         </button>
       );
     };
 
+    // --- ENLACE A RAÍZ ---
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
