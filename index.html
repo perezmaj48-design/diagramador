@@ -86,28 +86,35 @@
     const NODE_HEIGHT = 100;
 
     // ============================================================================
-    // MOTOR DE AUTOLAYOUT (BOUNDING BOX HIERÁRQUICO)
+    // MOTOR DE AUTOLAYOUT (BOUNDING BOX HIERÁRQUICO Y REDIMENSIONABLE)
     // ============================================================================
     const applyLocalLayout = (parentId, currentNodes, currentEdges) => {
       const parent = currentNodes.find(n => n.id === parentId);
       if (!parent) return currentNodes;
 
-      const childIds = currentEdges.filter(e => e.source === parentId).map(e => e.target);
+      const childEdges = currentEdges.filter(e => e.source === parentId);
+      const childIds = childEdges.map(e => e.target);
       const children = currentNodes.filter(n => childIds.includes(n.id));
 
       const groups = { right: [], left: [], top: [], bottom: [] };
       
-      // Agrupar hijos según su posición relativa general
+      // NUEVO: Agrupamos leyendo explícitamente la dirección guardada en la línea
       children.forEach(c => {
-        const dx = c.x - parent.x;
-        const dy = c.y - parent.y;
-        if (Math.abs(dx) >= Math.abs(dy)) {
-          if (dx >= 0) groups.right.push(c);
-          else groups.left.push(c);
-        } else {
-          if (dy >= 0) groups.bottom.push(c);
-          else groups.top.push(c);
+        const edge = childEdges.find(e => e.target === c.id);
+        let dir = edge.direction;
+        
+        // Fallback por si cargamos un diagrama muy antiguo sin la propiedad 'direction'
+        if (!dir) {
+          const dx = c.x - parent.x;
+          const dy = c.y - parent.y;
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            dir = dx >= 0 ? 'right' : 'left';
+          } else {
+            dir = dy >= 0 ? 'bottom' : 'top';
+          }
         }
+        
+        if (groups[dir]) groups[dir].push(c);
       });
 
       let updatedNodes = [...currentNodes];
@@ -130,9 +137,9 @@
         updatedNodes.forEach(n => {
           if (desc.has(n.id)) {
             minY = Math.min(minY, n.y);
-            maxY = Math.max(maxY, n.y + NODE_HEIGHT);
+            maxY = Math.max(maxY, n.y + (n.height || NODE_HEIGHT));
             minX = Math.min(minX, n.x);
-            maxX = Math.max(maxX, n.x + NODE_WIDTH);
+            maxX = Math.max(maxX, n.x + (n.width || NODE_WIDTH));
           }
         });
         
@@ -154,9 +161,8 @@
           return { node: c, st, topSpan: c.y - st.minY, bottomSpan: st.maxY - c.y };
         });
         
-        // La altura total ya no es "nodos * 160", sino la suma de las cajas reales + márgenes
         const totalHeight = infos.reduce((sum, info) => sum + info.st.height, 0) + GAP_Y * (group.length - 1);
-        let currentY = parent.y + NODE_HEIGHT / 2 - totalHeight / 2;
+        let currentY = parent.y + (parent.height || NODE_HEIGHT) / 2 - totalHeight / 2;
 
         infos.forEach(info => {
           const targetY = currentY + info.topSpan;
@@ -186,7 +192,7 @@
         });
         
         const totalWidth = infos.reduce((sum, info) => sum + info.st.width, 0) + GAP_X * (group.length - 1);
-        let currentX = parent.x + NODE_WIDTH / 2 - totalWidth / 2;
+        let currentX = parent.x + (parent.width || NODE_WIDTH) / 2 - totalWidth / 2;
 
         infos.forEach(info => {
           const targetX = currentX + info.leftSpan;
@@ -206,8 +212,7 @@
       return updatedNodes;
     };
 
-    // BURBUJEO DE LAYOUT: Recorre desde un nodo hacia la raíz avisando a los padres
-    // de que los tamaños han cambiado y deben separar las ramas.
+    // BURBUJEO DE LAYOUT
     const updateTreeLayout = (startNodeId, currentNodes, currentEdges) => {
         let updatedNodes = [...currentNodes];
         let curr = startNodeId;
@@ -229,7 +234,7 @@
     // --- APLICACIÓN PRINCIPAL ---
     function App() {
       const [nodes, setNodes] = useState([{
-        id: 'root-1', type: 'rectangle', text: 'Inicio', x: 350, y: 200, color: '#ffffff', comment: ''
+        id: 'root-1', type: 'rectangle', text: 'Inicio', x: 350, y: 200, width: NODE_WIDTH, height: NODE_HEIGHT, color: '#ffffff', comment: ''
       }]);
       const [edges, setEdges] = useState([]);
       const [collapsedNodes, setCollapsedNodes] = useState(new Set());
@@ -274,7 +279,6 @@
         let newNodes = nodes.filter(n => !nodesToDelete.has(n.id));
         let newEdges = edges.filter(e => !nodesToDelete.has(e.source) && !nodesToDelete.has(e.target));
 
-        // Cierre de huecos con el nuevo motor
         parentsToUpdate.forEach(parentId => {
           if (newNodes.some(n => n.id === parentId)) {
             newNodes = updateTreeLayout(parentId, newNodes, newEdges);
@@ -294,7 +298,7 @@
       }, [selectedNodes, edges, nodes]);
 
       const handleNewDiagram = useCallback(() => {
-        setNodes([{ id: generateId(), type: 'rectangle', text: 'Inicio', x: 350, y: 200, color: '#ffffff', comment: '' }]);
+        setNodes([{ id: generateId(), type: 'rectangle', text: 'Inicio', x: 350, y: 200, width: NODE_WIDTH, height: NODE_HEIGHT, color: '#ffffff', comment: '' }]);
         setEdges([]);
         setCollapsedNodes(new Set());
         setPan({ x: 0, y: 0 });
@@ -314,7 +318,7 @@
         const ny = -pan.y + window.innerHeight / 2 - NODE_HEIGHT / 2;
         
         setNodes(prev => [...prev, { 
-          id: newId, type: 'rectangle', text: '', x: nx, y: ny, color: '#ffffff', comment: '' 
+          id: newId, type: 'rectangle', text: '', x: nx, y: ny, width: NODE_WIDTH, height: NODE_HEIGHT, color: '#ffffff', comment: '' 
         }]);
         
         setToast('Figura suelta añadida');
@@ -354,6 +358,20 @@
         const vEdges = edges.filter(e => !hiddenNodes.has(e.target) && !hiddenNodes.has(e.source) && !collapsedNodes.has(e.source));
         return { visibleNodes: vNodes, visibleEdges: vEdges };
       }, [nodes, edges, collapsedNodes]);
+
+      // Función para iniciar la redimensión arrastrando la esquina
+      const handleResizeStart = useCallback((e, nodeId) => {
+        e.target.setPointerCapture(e.pointerId);
+        const node = nodes.find(n => n.id === nodeId);
+        setDragInfo({ 
+            type: 'resize', 
+            id: nodeId, 
+            startX: e.clientX, 
+            startY: e.clientY, 
+            startW: node.width || NODE_WIDTH, 
+            startH: node.height || NODE_HEIGHT 
+        });
+      }, [nodes]);
 
       const handlePointerDownCanvas = (e) => {
         if (e.target.closest('.no-drag')) return; 
@@ -398,7 +416,6 @@
         e.stopPropagation();
         e.target.setPointerCapture(e.pointerId);
         
-        // Novedad: Recopilar el nodo arrastrado y TODOS sus descendientes para que se muevan con él en bloque
         const movingIds = new Set(currentSelected);
         const queue = [...currentSelected];
         while(queue.length > 0) {
@@ -425,6 +442,20 @@
           return;
         }
 
+        // Lógica de cálculo al arrastrar el tirador de redimensión
+        if (dragInfo && dragInfo.type === 'resize') {
+          const dx = e.clientX - dragInfo.startX;
+          const dy = e.clientY - dragInfo.startY;
+          setNodes(prev => prev.map(n => {
+            if (n.id === dragInfo.id) {
+              // Limita a un tamaño mínimo de 80x60 para que no se deforme
+              return { ...n, width: Math.max(80, dragInfo.startW + dx), height: Math.max(60, dragInfo.startH + dy) };
+            }
+            return n;
+          }));
+          return;
+        }
+
         if (selectionBox) {
           const rect = e.currentTarget.getBoundingClientRect();
           setSelectionBox(prev => ({ ...prev, endX: e.clientX - rect.left - pan.x, endY: e.clientY - rect.top - pan.y }));
@@ -436,7 +467,6 @@
 
         if (dragInfo.type === 'node') {
           setNodes(prev => prev.map(n => {
-            // Mover el nodo si pertenece a la lista calculada de la rama arrastrada
             if (dragInfo.movingIds && dragInfo.movingIds.has(n.id)) {
               return { ...n, x: n.x + dx, y: n.y + dy };
             }
@@ -449,6 +479,15 @@
       }, [dragInfo, selectionBox, selectedNodes, pan]);
 
       const handlePointerUp = useCallback((e) => {
+        // Al terminar de redimensionar, le pedimos al motor de Auto-Layout que reordene la rama
+        if (dragInfo && dragInfo.type === 'resize') {
+          e.target.releasePointerCapture(e.pointerId);
+          const resizedId = dragInfo.id;
+          setDragInfo(null);
+          setNodes(prev => updateTreeLayout(resizedId, prev, edges));
+          return;
+        }
+
         if (dragInfo && dragInfo.type === 'connect') {
           e.target.releasePointerCapture(e.pointerId);
           const appContainer = document.getElementById('root').firstChild;
@@ -457,8 +496,8 @@
           const dropY = e.clientY - rect.top - pan.y;
 
           const targetNode = visibleNodes.find(n => 
-              dropX >= n.x && dropX <= n.x + NODE_WIDTH &&
-              dropY >= n.y && dropY <= n.y + NODE_HEIGHT
+              dropX >= n.x && dropX <= n.x + (n.width || NODE_WIDTH) &&
+              dropY >= n.y && dropY <= n.y + (n.height || NODE_HEIGHT)
           );
 
           if (targetNode && targetNode.id !== dragInfo.id) {
@@ -483,8 +522,18 @@
             } else if (wouldCreateCycle(dragInfo.id, targetNode.id)) {
                 setToast('Acción bloqueada: No se pueden crear bucles infinitos');
             } else {
-                const newEdges = [...edges, { source: dragInfo.id, target: targetNode.id }];
-                // Magia: Forzar auto-layout global al crear una conexión manual
+                // Si conectamos manual, detectamos la dirección inicial para evitar que se mueva en el futuro
+                const sourceNode = nodes.find(n => n.id === dragInfo.id);
+                const dx = targetNode.x - sourceNode.x;
+                const dy = targetNode.y - sourceNode.y;
+                let dir = 'right';
+                if (Math.abs(dx) >= Math.abs(dy)) {
+                    dir = dx >= 0 ? 'right' : 'left';
+                } else {
+                    dir = dy >= 0 ? 'bottom' : 'top';
+                }
+                
+                const newEdges = [...edges, { source: dragInfo.id, target: targetNode.id, direction: dir }];
                 const newNodes = updateTreeLayout(dragInfo.id, nodes, newEdges);
                 setNodes(newNodes);
                 setEdges(newEdges);
@@ -505,7 +554,9 @@
           const bottom = Math.max(selectionBox.startY, selectionBox.endY);
           const newSelection = new Set();
           visibleNodes.forEach(n => {
-            if (n.x < right && n.x + NODE_WIDTH > left && n.y < bottom && n.y + NODE_HEIGHT > top) newSelection.add(n.id);
+            const nw = n.width || NODE_WIDTH;
+            const nh = n.height || NODE_HEIGHT;
+            if (n.x < right && n.x + nw > left && n.y < bottom && n.y + nh > top) newSelection.add(n.id);
           });
           setSelectedNodes(newSelection);
           setSelectionBox(null);
@@ -599,21 +650,41 @@
 
       const handleAddNode = (sourceId, direction, shapeType) => {
         const sourceNode = nodes.find(n => n.id === sourceId);
+        
+        // Copia el ancho y el alto del padre (o usa el por defecto)
+        const w = sourceNode.width || NODE_WIDTH;
+        const h = sourceNode.height || NODE_HEIGHT;
+
         let nx = sourceNode.x, ny = sourceNode.y;
         
-        // Coordenadas con margen seguro para forzar al algoritmo a meterla 
-        // en el grupo correcto sin romper el cálculo de tamaños
-        if (direction === 'right') { nx += 260; ny += 250; }
-        if (direction === 'left') { nx -= 260; ny += 250; }
-        if (direction === 'bottom') { ny += 180; nx += 170; }
-        if (direction === 'top') { ny -= 180; nx += 170; }
+        // Buscamos los hijos existentes en esa misma dirección para poner el nuevo al final
+        const existingEdgesInDir = edges.filter(e => e.source === sourceId && e.direction === direction);
+        const existingChildren = nodes.filter(n => existingEdgesInDir.some(e => e.target === n.id));
+        
+        // Ajustamos la coordenada primaria y obligamos a que se sitúe a la cola
+        if (direction === 'right') { 
+            nx += w + 80; 
+            ny = existingChildren.length > 0 ? Math.max(...existingChildren.map(c => c.y)) + h + 50 : ny;
+        }
+        if (direction === 'left') { 
+            nx -= w + 80; 
+            ny = existingChildren.length > 0 ? Math.max(...existingChildren.map(c => c.y)) + h + 50 : ny;
+        }
+        if (direction === 'bottom') { 
+            ny += h + 80; 
+            nx = existingChildren.length > 0 ? Math.max(...existingChildren.map(c => c.x)) + w + 50 : nx;
+        }
+        if (direction === 'top') { 
+            ny -= h + 80; 
+            nx = existingChildren.length > 0 ? Math.max(...existingChildren.map(c => c.x)) + w + 50 : nx;
+        }
         
         const newId = generateId();
         
-        let newNodes = [...nodes, { id: newId, type: shapeType, text: '', x: nx, y: ny, color: '#ffffff', comment: '' }];
-        let newEdges = [...edges, { source: sourceId, target: newId }];
+        let newNodes = [...nodes, { id: newId, type: shapeType, text: '', x: nx, y: ny, width: w, height: h, color: '#ffffff', comment: '' }];
+        // NUEVO: Marcamos explícitamente la dirección al crear la línea para evitar bugs matemáticos futuros
+        let newEdges = [...edges, { source: sourceId, target: newId, direction: direction }]; 
 
-        // El nuevo algoritmo redimensiona toda la rama y empuja a las tías/hermanas sin superponerse
         newNodes = updateTreeLayout(sourceId, newNodes, newEdges);
 
         setNodes(newNodes);
@@ -625,42 +696,47 @@
         }
       };
 
-      // --- CALCULADOR DE LÍNEAS OPTIMIZADO CON ANCLAJE INTELIGENTE ---
+      // --- CALCULADOR DE LÍNEAS OPTIMIZADO CON ANCLAJE DINÁMICO DE TAMAÑO ---
       const getOrthogonalPath = (sourceId, targetId) => {
         const source = nodes.find(n => n.id === sourceId); 
         const target = nodes.find(n => n.id === targetId);
         if (!source || !target) return '';
         
-        const sx = source.x + NODE_WIDTH / 2;
-        const sy = source.y + NODE_HEIGHT / 2;
-        const tx = target.x + NODE_WIDTH / 2;
-        const ty = target.y + NODE_HEIGHT / 2;
+        const sw = source.width || NODE_WIDTH;
+        const sh = source.height || NODE_HEIGHT;
+        const tw = target.width || NODE_WIDTH;
+        const th = target.height || NODE_HEIGHT;
+
+        const sx = source.x + sw / 2;
+        const sy = source.y + sh / 2;
+        const tx = target.x + tw / 2;
+        const ty = target.y + th / 2;
         
-        // 1. Target está a la derecha (Sale por la derecha, entra por la izquierda)
-        if (target.x >= source.x + NODE_WIDTH) {
-          const startX = source.x + NODE_WIDTH;
+        // 1. Target está a la derecha
+        if (target.x >= source.x + sw) {
+          const startX = source.x + sw;
           const endX = target.x - 6; 
           const midX = startX + (endX - startX) / 2;
           return `M ${startX} ${sy} L ${midX} ${sy} L ${midX} ${ty} L ${endX} ${ty}`;
         } 
-        // 2. Target está a la izquierda (Sale por la izquierda, entra por la derecha)
-        else if (target.x + NODE_WIDTH <= source.x) {
+        // 2. Target está a la izquierda
+        else if (target.x + tw <= source.x) {
           const startX = source.x;
-          const endX = target.x + NODE_WIDTH + 6;
+          const endX = target.x + tw + 6;
           const midX = startX + (endX - startX) / 2;
           return `M ${startX} ${sy} L ${midX} ${sy} L ${midX} ${ty} L ${endX} ${ty}`;
         }
-        // 3. Target está abajo (Sale por abajo, entra por arriba)
-        else if (target.y >= source.y + NODE_HEIGHT) {
-          const startY = source.y + NODE_HEIGHT;
+        // 3. Target está abajo
+        else if (target.y >= source.y + sh) {
+          const startY = source.y + sh;
           const endY = target.y - 6;
           const midY = startY + (endY - startY) / 2;
           return `M ${sx} ${startY} L ${sx} ${midY} L ${tx} ${midY} L ${tx} ${endY}`;
         }
-        // 4. Target está arriba (Sale por arriba, entra por abajo)
-        else if (target.y + NODE_HEIGHT <= source.y) {
+        // 4. Target está arriba
+        else if (target.y + th <= source.y) {
           const startY = source.y;
-          const endY = target.y + NODE_HEIGHT + 6;
+          const endY = target.y + th + 6;
           const midY = startY + (endY - startY) / 2;
           return `M ${sx} ${startY} L ${sx} ${midY} L ${tx} ${midY} L ${tx} ${endY}`;
         }
@@ -704,7 +780,7 @@
               
               {dragInfo && dragInfo.type === 'connect' && dragInfo.canvasX !== undefined && (
                 <path 
-                  d={`M ${(nodes.find(n => n.id === dragInfo.id)?.x || 0) + NODE_WIDTH / 2} ${(nodes.find(n => n.id === dragInfo.id)?.y || 0) + NODE_HEIGHT / 2} L ${dragInfo.canvasX} ${dragInfo.canvasY}`} 
+                  d={`M ${(nodes.find(n => n.id === dragInfo.id)?.x || 0) + (nodes.find(n => n.id === dragInfo.id)?.width || NODE_WIDTH) / 2} ${(nodes.find(n => n.id === dragInfo.id)?.y || 0) + (nodes.find(n => n.id === dragInfo.id)?.height || NODE_HEIGHT) / 2} L ${dragInfo.canvasX} ${dragInfo.canvasY}`} 
                   fill="none" 
                   stroke="#3b82f6" 
                   strokeWidth="2.5" 
@@ -716,7 +792,7 @@
 
             <div className="absolute inset-0 pointer-events-none z-20">
               {visibleNodes.map(node => (
-                <Node key={node.id} mode={mode} node={node} edges={edges} isCollapsed={collapsedNodes.has(node.id)} isSelected={selectedNodes.has(node.id)} activeMenu={activeMenu?.nodeId === node.id ? activeMenu : null} setActiveMenu={setActiveMenu} onPointerDown={(e) => handlePointerDownNode(e, node.id)} onAdd={handleAddNode} onTextChange={(id, txt) => setNodes(prev => prev.map(n => n.id === id ? { ...n, text: txt } : n))} onColorChange={(id, clr) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, color: clr } : n)); setActiveMenu(null); }} onCommentChange={(id, cmt) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, comment: cmt } : n)); }} onToggleCollapse={() => { const nc = new Set(collapsedNodes); nc.has(node.id) ? nc.delete(node.id) : nc.add(node.id); setCollapsedNodes(nc); }} />
+                <Node key={node.id} mode={mode} node={node} edges={edges} isCollapsed={collapsedNodes.has(node.id)} isSelected={selectedNodes.has(node.id)} activeMenu={activeMenu?.nodeId === node.id ? activeMenu : null} setActiveMenu={setActiveMenu} onPointerDown={(e) => handlePointerDownNode(e, node.id)} onAdd={handleAddNode} onTextChange={(id, txt) => setNodes(prev => prev.map(n => n.id === id ? { ...n, text: txt } : n))} onColorChange={(id, clr) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, color: clr } : n)); setActiveMenu(null); }} onCommentChange={(id, cmt) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, comment: cmt } : n)); }} onToggleCollapse={() => { const nc = new Set(collapsedNodes); nc.has(node.id) ? nc.delete(node.id) : nc.add(node.id); setCollapsedNodes(nc); }} onResizeStart={handleResizeStart} />
               ))}
             </div>
 
@@ -725,7 +801,7 @@
 
           {nodes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
-              <button className="pointer-events-auto flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full shadow-xl font-medium transition-transform hover:scale-105" onClick={() => { setNodes([{ id: generateId(), type: 'rectangle', text: 'Inicio', x: -pan.x + window.innerWidth / 2 - NODE_WIDTH / 2, y: -pan.y + window.innerHeight / 2 - NODE_HEIGHT / 2, color: '#ffffff', comment: '' }]); setMode('pan'); }}><Plus size={20} /> Añadir figura inicial</button>
+              <button className="pointer-events-auto flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full shadow-xl font-medium transition-transform hover:scale-105" onClick={() => { setNodes([{ id: generateId(), type: 'rectangle', text: 'Inicio', x: -pan.x + window.innerWidth / 2 - NODE_WIDTH / 2, y: -pan.y + window.innerHeight / 2 - NODE_HEIGHT / 2, width: NODE_WIDTH, height: NODE_HEIGHT, color: '#ffffff', comment: '' }]); setMode('pan'); }}><Plus size={20} /> Añadir figura inicial</button>
             </div>
           )}
 
@@ -752,11 +828,13 @@
       );
     }
 
-    function Node({ mode, node, edges, isCollapsed, isSelected, activeMenu, setActiveMenu, onPointerDown, onAdd, onTextChange, onColorChange, onCommentChange, onToggleCollapse }) {
+    function Node({ mode, node, edges, isCollapsed, isSelected, activeMenu, setActiveMenu, onPointerDown, onAdd, onTextChange, onColorChange, onCommentChange, onToggleCollapse, onResizeStart }) {
       const [isHovered, setIsHovered] = useState(false);
       const hasChildren = edges.some(e => e.source === node.id);
       
       const palette = COLOR_MAP[node.color] || COLOR_MAP['#ffffff'];
+      const currentWidth = node.width || NODE_WIDTH;
+      const currentHeight = node.height || NODE_HEIGHT;
 
       const getMenuPos = (dir) => {
         if (dir === 'top') return { bottom: '115%', left: '50%', transform: 'translateX(-50%)' };
@@ -767,13 +845,13 @@
       };
 
       return (
-        <div className={`absolute pointer-events-auto transition-all duration-150 ${isSelected ? 'ring-2 ring-blue-500 ring-offset-2 rounded-xl' : ''} ${mode === 'connect' ? 'cursor-crosshair hover:ring-2 hover:ring-blue-400 hover:ring-offset-1 hover:rounded-xl' : 'cursor-grab active:cursor-grabbing'}`} style={{ width: NODE_WIDTH, height: NODE_HEIGHT, transform: `translate(${node.x}px, ${node.y}px)` }} onPointerDown={onPointerDown} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
+        <div className={`absolute pointer-events-auto transition-all duration-150 ${isSelected ? 'ring-2 ring-blue-500 ring-offset-2 rounded-xl' : ''} ${mode === 'connect' ? 'cursor-crosshair hover:ring-2 hover:ring-blue-400 hover:ring-offset-1 hover:rounded-xl' : 'cursor-grab active:cursor-grabbing'}`} style={{ width: currentWidth, height: currentHeight, transform: `translate(${node.x}px, ${node.y}px)` }} onPointerDown={onPointerDown} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
           
-          <ShapeSVG type={node.type} palette={palette} />
+          <ShapeSVG type={node.type} palette={palette} width={currentWidth} height={currentHeight} />
           
           <div contentEditable suppressContentEditableWarning className={`no-drag absolute inset-0 m-4 flex items-center justify-center text-center outline-none focus:bg-white/30 rounded-lg transition-all font-semibold text-sm leading-snug ${mode === 'connect' ? 'pointer-events-none' : ''}`} onBlur={(e) => onTextChange(node.id, e.target.innerText)} style={{ wordBreak: 'break-word', color: palette.text }}>{node.text}</div>
           
-          {hasChildren && mode !== 'connect' && <button className="no-drag no-print absolute -bottom-3 -right-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-md text-slate-500 hover:text-slate-800 z-30 transition-transform hover:scale-110 active:scale-95" onPointerDown={(e) => { e.stopPropagation(); onToggleCollapse(); }} title={isCollapsed ? "Expandir" : "Contraer"}>{isCollapsed ? <Plus size={14} /> : <Minus size={14} />}</button>}
+          {hasChildren && mode !== 'connect' && <button className="no-drag no-print absolute -bottom-3 right-4 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-md text-slate-500 hover:text-slate-800 z-30 transition-transform hover:scale-110 active:scale-95" onPointerDown={(e) => { e.stopPropagation(); onToggleCollapse(); }} title={isCollapsed ? "Expandir" : "Contraer"}>{isCollapsed ? <Plus size={14} /> : <Minus size={14} />}</button>}
           
           {(isHovered || activeMenu?.type === 'comment' || (node.comment && node.comment.trim() !== '')) && mode !== 'connect' && (
             <button 
@@ -835,13 +913,26 @@
               <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" onPointerDown={(e) => { e.stopPropagation(); onAdd(node.id, activeMenu.direction, 'rhombus'); }} title="Añadir Rombo"><Diamond size={20} /></button>
             </div>
           )}
+
+          {/* Tirador de Redimensión en la esquina inferior derecha */}
+          {(isSelected || isHovered) && mode !== 'connect' && (
+            <div 
+              className="no-drag no-print absolute right-0 bottom-0 w-4 h-4 bg-blue-500 border-2 border-white rounded-sm cursor-nwse-resize z-40 shadow-md hover:scale-125 transition-transform"
+              style={{ transform: 'translate(40%, 40%)' }}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                onResizeStart(e, node.id);
+              }}
+              title="Arrastra para redimensionar"
+            />
+          )}
         </div>
       );
     }
 
-    const ShapeSVG = ({ type, palette }) => {
+    const ShapeSVG = ({ type, palette, width, height }) => {
       return (
-        <svg width={NODE_WIDTH} height={NODE_HEIGHT} className="absolute inset-0 z-0 pointer-events-none drop-shadow-[0_4px_10px_rgba(0,0,0,0.06)] overflow-visible">
+        <svg width={width} height={height} className="absolute inset-0 z-0 pointer-events-none drop-shadow-[0_4px_10px_rgba(0,0,0,0.06)] overflow-visible">
           <defs>
             <linearGradient id="sheen" x1="0%" y1="0%" x2="0%" y2="100%">
               <stop offset="0%" stopColor="#ffffff" stopOpacity="0.25" />
@@ -851,26 +942,26 @@
           
           {type === 'rectangle' && (
             <g>
-              <rect x="2" y="2" width={NODE_WIDTH - 4} height={NODE_HEIGHT - 4} rx="12" fill={palette.bg} stroke={palette.border} strokeWidth="2.5" />
-              <rect x="2" y="2" width={NODE_WIDTH - 4} height={NODE_HEIGHT - 4} rx="12" fill="url(#sheen)" />
+              <rect x="2" y="2" width={width - 4} height={height - 4} rx="12" fill={palette.bg} stroke={palette.border} strokeWidth="2.5" />
+              <rect x="2" y="2" width={width - 4} height={height - 4} rx="12" fill="url(#sheen)" />
             </g>
           )}
           {type === 'circle' && (
             <g>
-              <ellipse cx={NODE_WIDTH / 2} cy={NODE_HEIGHT / 2} rx={(NODE_WIDTH - 4) / 2} ry={(NODE_HEIGHT - 4) / 2} fill={palette.bg} stroke={palette.border} strokeWidth="2.5" />
-              <ellipse cx={NODE_WIDTH / 2} cy={NODE_HEIGHT / 2} rx={(NODE_WIDTH - 4) / 2} ry={(NODE_HEIGHT - 4) / 2} fill="url(#sheen)" />
+              <ellipse cx={width / 2} cy={height / 2} rx={(width - 4) / 2} ry={(height - 4) / 2} fill={palette.bg} stroke={palette.border} strokeWidth="2.5" />
+              <ellipse cx={width / 2} cy={height / 2} rx={(width - 4) / 2} ry={(height - 4) / 2} fill="url(#sheen)" />
             </g>
           )}
           {type === 'pentagon' && (
             <g>
-              <polygon points={`${NODE_WIDTH/2},4 ${NODE_WIDTH-4},${NODE_HEIGHT * 0.38} ${NODE_WIDTH * 0.8},${NODE_HEIGHT-4} ${NODE_WIDTH * 0.2},${NODE_HEIGHT-4} 4,${NODE_HEIGHT * 0.38}`} fill={palette.bg} stroke={palette.border} strokeWidth="2.5" strokeLinejoin="round" />
-              <polygon points={`${NODE_WIDTH/2},4 ${NODE_WIDTH-4},${NODE_HEIGHT * 0.38} ${NODE_WIDTH * 0.8},${NODE_HEIGHT-4} ${NODE_WIDTH * 0.2},${NODE_HEIGHT-4} 4,${NODE_HEIGHT * 0.38}`} fill="url(#sheen)" strokeLinejoin="round" />
+              <polygon points={`${width/2},4 ${width-4},${height * 0.38} ${width * 0.8},${height-4} ${width * 0.2},${height-4} 4,${height * 0.38}`} fill={palette.bg} stroke={palette.border} strokeWidth="2.5" strokeLinejoin="round" />
+              <polygon points={`${width/2},4 ${width-4},${height * 0.38} ${width * 0.8},${height-4} ${width * 0.2},${height-4} 4,${height * 0.38}`} fill="url(#sheen)" strokeLinejoin="round" />
             </g>
           )}
           {type === 'rhombus' && (
             <g>
-              <polygon points={`${NODE_WIDTH/2},4 ${NODE_WIDTH-4},${NODE_HEIGHT/2} ${NODE_WIDTH/2},${NODE_HEIGHT-4} 4,${NODE_HEIGHT/2}`} fill={palette.bg} stroke={palette.border} strokeWidth="2.5" strokeLinejoin="round" />
-              <polygon points={`${NODE_WIDTH/2},4 ${NODE_WIDTH-4},${NODE_HEIGHT/2} ${NODE_WIDTH/2},${NODE_HEIGHT-4} 4,${NODE_HEIGHT/2}`} fill="url(#sheen)" strokeLinejoin="round" />
+              <polygon points={`${width/2},4 ${width-4},${height/2} ${width/2},${height-4} 4,${height/2}`} fill={palette.bg} stroke={palette.border} strokeWidth="2.5" strokeLinejoin="round" />
+              <polygon points={`${width/2},4 ${width-4},${height/2} ${width/2},${height-4} 4,${height/2}`} fill="url(#sheen)" strokeLinejoin="round" />
             </g>
           )}
         </svg>
