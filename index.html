@@ -75,6 +75,100 @@
     const NODE_WIDTH = 150;
     const NODE_HEIGHT = 100;
 
+    // --- HELPER DE AUTOLAYOUT (Recolocación inteligente) ---
+    const applyLocalLayout = (parentId, currentNodes, currentEdges) => {
+      const parent = currentNodes.find(n => n.id === parentId);
+      if (!parent) return currentNodes;
+
+      const childIds = currentEdges.filter(e => e.source === parentId).map(e => e.target);
+      const children = currentNodes.filter(n => childIds.includes(n.id));
+
+      const groups = { right: [], left: [], top: [], bottom: [] };
+      
+      children.forEach(c => {
+        const dx = c.x - parent.x;
+        const dy = c.y - parent.y;
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          if (dx >= 0) groups.right.push(c);
+          else groups.left.push(c);
+        } else {
+          if (dy >= 0) groups.bottom.push(c);
+          else groups.top.push(c);
+        }
+      });
+
+      let updatedNodes = [...currentNodes];
+
+      const getDescendants = (rootId) => {
+        const desc = new Set();
+        const queue = [rootId];
+        while (queue.length > 0) {
+          const curr = queue.shift();
+          currentEdges.forEach(e => {
+            if (e.source === curr && !desc.has(e.target)) {
+              desc.add(e.target);
+              queue.push(e.target);
+            }
+          });
+        }
+        return desc;
+      };
+
+      ['right', 'left'].forEach(side => {
+        const group = groups[side];
+        if (group.length === 0) return;
+        
+        group.sort((a, b) => a.y - b.y);
+        
+        const totalHeight = (group.length - 1) * 160;
+        const startY = parent.y - totalHeight / 2;
+
+        group.forEach((c, index) => {
+          const targetY = startY + index * 160;
+          const dy = targetY - c.y;
+          
+          if (dy !== 0) {
+            const desc = getDescendants(c.id);
+            updatedNodes = updatedNodes.map(n => {
+              if (n.id === c.id || desc.has(n.id)) {
+                return { ...n, y: n.y + dy };
+              }
+              return n;
+            });
+            c.y = targetY; 
+          }
+        });
+      });
+
+      ['top', 'bottom'].forEach(side => {
+        const group = groups[side];
+        if (group.length === 0) return;
+        
+        group.sort((a, b) => a.x - b.x);
+        
+        const totalWidth = (group.length - 1) * 220;
+        const startX = parent.x - totalWidth / 2;
+
+        group.forEach((c, index) => {
+          const targetX = startX + index * 220;
+          const dx = targetX - c.x;
+          
+          if (dx !== 0) {
+            const desc = getDescendants(c.id);
+            updatedNodes = updatedNodes.map(n => {
+              if (n.id === c.id || desc.has(n.id)) {
+                return { ...n, x: n.x + dx };
+              }
+              return n;
+            });
+            c.x = targetX;
+          }
+        });
+      });
+
+      return updatedNodes;
+    };
+
     // --- APLICACIÓN PRINCIPAL ---
     function App() {
       const [nodes, setNodes] = useState([{
@@ -97,6 +191,14 @@
       const handleDeleteSelected = useCallback(() => {
         if (selectedNodes.size === 0) return;
         
+        // Encontrar a los padres de los nodos que vamos a borrar para luego recolocar a sus hermanos
+        const parentsToUpdate = new Set();
+        edges.forEach(edge => {
+          if (selectedNodes.has(edge.target) && !selectedNodes.has(edge.source)) {
+            parentsToUpdate.add(edge.source);
+          }
+        });
+        
         // Encontrar todos los descendientes (hijos, nietos...) de los nodos seleccionados
         const nodesToDelete = new Set(selectedNodes);
         let addedNew = true;
@@ -112,17 +214,27 @@
           });
         }
 
-        setNodes(prev => prev.filter(n => !nodesToDelete.has(n.id)));
-        setEdges(prev => prev.filter(e => !nodesToDelete.has(e.source) && !nodesToDelete.has(e.target)));
+        let newNodes = nodes.filter(n => !nodesToDelete.has(n.id));
+        let newEdges = edges.filter(e => !nodesToDelete.has(e.source) && !nodesToDelete.has(e.target));
+
+        // Recolocación inteligente: centramos los hermanos que quedan
+        parentsToUpdate.forEach(parentId => {
+          if (newNodes.some(n => n.id === parentId)) {
+            newNodes = applyLocalLayout(parentId, newNodes, newEdges);
+          }
+        });
+
+        setNodes(newNodes);
+        setEdges(newEdges);
         setCollapsedNodes(prev => {
           const newCollapsed = new Set(prev);
           nodesToDelete.forEach(id => newCollapsed.delete(id));
           return newCollapsed;
         });
         setSelectedNodes(new Set());
-        setToast('Figuras borradas');
+        setToast('Figuras borradas y recolocadas');
         setTimeout(() => setToast(''), 3000);
-      }, [selectedNodes, edges]);
+      }, [selectedNodes, edges, nodes]);
 
       const handleNewDiagram = useCallback(() => {
         setNodes([{ id: generateId(), type: 'rectangle', text: 'Inicio', x: 350, y: 200, color: '#ffffff', comment: '' }]);
@@ -298,46 +410,22 @@
       const handleAddNode = (sourceId, direction, shapeType) => {
         const sourceNode = nodes.find(n => n.id === sourceId);
         let nx = sourceNode.x, ny = sourceNode.y;
-        let dx = 0, dy = 0;
         
-        // Calcular los desplazamientos dependiendo de la dirección
-        if (direction === 'right') dx = 220;
-        if (direction === 'left') dx = -220;
-        if (direction === 'bottom') dy = 160;
-        if (direction === 'top') dy = -160;
-        
-        nx += dx;
-        ny += dy;
+        // Calcular los desplazamientos dependiendo de la dirección.
+        // Usamos 210 y 150 para colocar la figura al final de la cola
+        // sin confundir al algoritmo de agrupación direccional (que fallaba y causaba la línea infinita).
+        if (direction === 'right') { nx += 220; ny += 210; }
+        if (direction === 'left') { nx -= 220; ny += 210; }
+        if (direction === 'bottom') { ny += 160; nx += 150; }
+        if (direction === 'top') { ny -= 160; nx += 150; }
         
         const newId = generateId();
         
-        let newNodes = [...nodes];
-        let newEdges = [...edges];
+        let newNodes = [...nodes, { id: newId, type: shapeType, text: '', x: nx, y: ny, color: '#ffffff', comment: '' }];
+        let newEdges = [...edges, { source: sourceId, target: newId }];
 
-        // Detectar si hay figuras en el sitio exacto donde queremos crear la nueva
-        const occupiedNodes = nodes.filter(n => Math.abs(n.x - nx) < 50 && Math.abs(n.y - ny) < 50);
-
-        if (occupiedNodes.length > 0) {
-          // Si hay una figura delante, la "empujamos" hacia arriba
-          // junto con cualquier otra figura que ya estuviera por encima de ella para hacer hueco
-          newNodes = newNodes.map(n => {
-            // Solo empujamos las figuras que estén en la misma "columna" (mismo X)
-            if (Math.abs(n.x - nx) < 50) {
-              if ((direction === 'right' || direction === 'left' || direction === 'top') && n.y <= ny + 10) {
-                return { ...n, y: n.y - 160 }; // Sube hacia arriba
-              } else if (direction === 'bottom' && n.y >= ny - 10) {
-                return { ...n, y: n.y + 160 }; // Empuja hacia abajo por seguridad (si creas ramas hacia abajo)
-              }
-            }
-            return n;
-          });
-          
-          // NOTA: No modificamos las líneas antiguas.
-          // La figura que subió y la nueva central serán "hermanas", conectadas ambas a la madre.
-        }
-
-        newNodes.push({ id: newId, type: shapeType, text: '', x: nx, y: ny, color: '#ffffff', comment: '' });
-        newEdges.push({ source: sourceId, target: newId });
+        // Aplicar la recolocación automática al padre para centrar a todos sus hijos elegantemente
+        newNodes = applyLocalLayout(sourceId, newNodes, newEdges);
 
         setNodes(newNodes);
         setEdges(newEdges);
