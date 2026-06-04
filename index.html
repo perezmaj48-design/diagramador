@@ -54,6 +54,7 @@
     const FolderOpen = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg>;
     const Trash2 = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>;
     const FilePlus = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/></svg>;
+    const MessageSquare = ({size=24, fill="none"}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
 
     // --- GENERADOR DE IDs ---
     const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -76,7 +77,7 @@
     // --- APLICACIÓN PRINCIPAL ---
     function App() {
       const [nodes, setNodes] = useState([{
-        id: 'root-1', type: 'rectangle', text: 'Inicio', x: 350, y: 200, color: '#ffffff'
+        id: 'root-1', type: 'rectangle', text: 'Inicio', x: 350, y: 200, color: '#ffffff', comment: ''
       }]);
       const [edges, setEdges] = useState([]);
       const [collapsedNodes, setCollapsedNodes] = useState(new Set());
@@ -123,7 +124,7 @@
       }, [selectedNodes, edges]);
 
       const handleNewDiagram = useCallback(() => {
-        setNodes([{ id: generateId(), type: 'rectangle', text: 'Inicio', x: 350, y: 200, color: '#ffffff' }]);
+        setNodes([{ id: generateId(), type: 'rectangle', text: 'Inicio', x: 350, y: 200, color: '#ffffff', comment: '' }]);
         setEdges([]);
         setCollapsedNodes(new Set());
         setPan({ x: 0, y: 0 });
@@ -138,7 +139,7 @@
       useEffect(() => {
         const handleKeyDown = (e) => {
           if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodes.size > 0) {
-            if (document.activeElement.isContentEditable || document.activeElement.tagName === 'INPUT') return;
+            if (document.activeElement.isContentEditable || document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
             handleDeleteSelected();
           }
         };
@@ -279,7 +280,7 @@
         if (direction === 'right') nx += 220; if (direction === 'left') nx -= 220;
         if (direction === 'top') ny -= 160; if (direction === 'bottom') ny += 160;
         const newId = generateId();
-        setNodes([...nodes, { id: newId, type: shapeType, text: '', x: nx, y: ny, color: '#ffffff' }]);
+        setNodes([...nodes, { id: newId, type: shapeType, text: '', x: nx, y: ny, color: '#ffffff', comment: '' }]);
         setEdges([...edges, { source: sourceId, target: newId }]);
         setActiveMenu(null);
         if (collapsedNodes.has(sourceId)) {
@@ -344,7 +345,7 @@
             {/* Capa de figuras */}
             <div className="absolute inset-0 pointer-events-none z-20">
               {visibleNodes.map(node => (
-                <Node key={node.id} node={node} edges={edges} isCollapsed={collapsedNodes.has(node.id)} isSelected={selectedNodes.has(node.id)} activeMenu={activeMenu?.nodeId === node.id ? activeMenu : null} setActiveMenu={setActiveMenu} onPointerDown={(e) => handlePointerDownNode(e, node.id)} onAdd={handleAddNode} onTextChange={(id, txt) => setNodes(prev => prev.map(n => n.id === id ? { ...n, text: txt } : n))} onColorChange={(id, clr) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, color: clr } : n)); setActiveMenu(null); }} onToggleCollapse={() => { const nc = new Set(collapsedNodes); nc.has(node.id) ? nc.delete(node.id) : nc.add(node.id); setCollapsedNodes(nc); }} />
+                <Node key={node.id} node={node} edges={edges} isCollapsed={collapsedNodes.has(node.id)} isSelected={selectedNodes.has(node.id)} activeMenu={activeMenu?.nodeId === node.id ? activeMenu : null} setActiveMenu={setActiveMenu} onPointerDown={(e) => handlePointerDownNode(e, node.id)} onAdd={handleAddNode} onTextChange={(id, txt) => setNodes(prev => prev.map(n => n.id === id ? { ...n, text: txt } : n))} onColorChange={(id, clr) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, color: clr } : n)); setActiveMenu(null); }} onCommentChange={(id, cmt) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, comment: cmt } : n)); }} onToggleCollapse={() => { const nc = new Set(collapsedNodes); nc.has(node.id) ? nc.delete(node.id) : nc.add(node.id); setCollapsedNodes(nc); }} />
               ))}
             </div>
 
@@ -354,7 +355,7 @@
 
           {nodes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
-              <button className="pointer-events-auto flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full shadow-xl font-medium transition-transform hover:scale-105" onClick={() => { setNodes([{ id: generateId(), type: 'rectangle', text: 'Inicio', x: -pan.x + window.innerWidth / 2 - NODE_WIDTH / 2, y: -pan.y + window.innerHeight / 2 - NODE_HEIGHT / 2, color: '#ffffff' }]); setMode('pan'); }}><Plus size={20} /> Añadir figura inicial</button>
+              <button className="pointer-events-auto flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full shadow-xl font-medium transition-transform hover:scale-105" onClick={() => { setNodes([{ id: generateId(), type: 'rectangle', text: 'Inicio', x: -pan.x + window.innerWidth / 2 - NODE_WIDTH / 2, y: -pan.y + window.innerHeight / 2 - NODE_HEIGHT / 2, color: '#ffffff', comment: '' }]); setMode('pan'); }}><Plus size={20} /> Añadir figura inicial</button>
             </div>
           )}
 
@@ -383,7 +384,7 @@
     }
 
     // --- COMPONENTE INTERACTIVO DE FIGURA ---
-    function Node({ node, edges, isCollapsed, isSelected, activeMenu, setActiveMenu, onPointerDown, onAdd, onTextChange, onColorChange, onToggleCollapse }) {
+    function Node({ node, edges, isCollapsed, isSelected, activeMenu, setActiveMenu, onPointerDown, onAdd, onTextChange, onColorChange, onCommentChange, onToggleCollapse }) {
       const [isHovered, setIsHovered] = useState(false);
       const hasChildren = edges.some(e => e.source === node.id);
       
@@ -408,6 +409,44 @@
           
           {/* UI de control: Colapsar árbol */}
           {hasChildren && <button className="no-drag absolute -bottom-3 -right-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-md text-slate-500 hover:text-slate-800 z-30 transition-transform hover:scale-110 active:scale-95" onPointerDown={(e) => { e.stopPropagation(); onToggleCollapse(); }} title={isCollapsed ? "Expandir" : "Contraer"}>{isCollapsed ? <Plus size={14} /> : <Minus size={14} />}</button>}
+          
+          {/* UI de control: Comentario / Notas (Con marca de notificación) */}
+          {(isHovered || activeMenu?.type === 'comment' || (node.comment && node.comment.trim() !== '')) && (
+            <button 
+              className={`no-drag absolute -top-3 -left-3 w-7 h-7 rounded-full flex items-center justify-center shadow-md z-30 transition-transform hover:scale-110 active:scale-95 border ${node.comment && node.comment.trim() !== '' ? 'bg-amber-50 border-amber-300 text-amber-500' : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800'}`} 
+              onPointerDown={(e) => { e.stopPropagation(); setActiveMenu(activeMenu?.type === 'comment' && activeMenu.nodeId === node.id ? null : { nodeId: node.id, type: 'comment' }); }} 
+              title={node.comment && node.comment.trim() !== '' ? "Ver/Editar comentario" : "Añadir comentario"}
+            >
+              <MessageSquare size={14} fill={node.comment && node.comment.trim() !== '' ? "currentColor" : "none"} />
+              
+              {/* Marca visual (Puntito naranja con latido) si hay comentario */}
+              {node.comment && node.comment.trim() !== '' && (
+                <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-amber-500 border-2 border-white"></span>
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Menú de Editor de Comentario */}
+          {activeMenu?.type === 'comment' && (
+            <div className="no-drag absolute z-50 bg-white/95 backdrop-blur border border-slate-200 shadow-xl rounded-xl p-3 w-56 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-2" style={{ bottom: '100%', left: '0', marginBottom: '16px' }} onPointerDown={(e) => e.stopPropagation()}>
+              <textarea
+                className="w-full h-24 text-sm bg-slate-50 border border-slate-200 rounded-lg p-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 placeholder-slate-400"
+                placeholder="Escribe una nota o comentario aquí..."
+                value={node.comment || ''}
+                onChange={(e) => onCommentChange(node.id, e.target.value)}
+                autoFocus
+              />
+              <button
+                className="w-full text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg py-2 transition-colors"
+                onPointerDown={(e) => { e.stopPropagation(); setActiveMenu(null); }}
+              >
+                Cerrar
+              </button>
+            </div>
+          )}
           
           {/* UI de control: Selector de color */}
           {(isHovered || activeMenu?.type === 'color') && <button className="no-drag absolute -top-3 -right-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-md text-slate-500 hover:text-slate-800 z-30 transition-transform hover:scale-110 active:scale-95" onPointerDown={(e) => { e.stopPropagation(); setActiveMenu({ nodeId: node.id, type: 'color' }); }} title="Colorear"><Palette size={14} /></button>}
