@@ -56,11 +56,12 @@
     const Trash2 = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>;
     const FilePlus = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/></svg>;
     const MessageSquare = ({size=24, fill="none"}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
+    const LinkIcon = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>;
 
     // --- GENERADOR DE IDs ---
     const generateId = () => Math.random().toString(36).substring(2, 9);
 
-    // --- MAPA DE PALETAS DE COLOR PREMIUM (Fondo, Borde Armónico y Texto) ---
+    // --- MAPA DE PALETAS DE COLOR PREMIUM ---
     const COLOR_MAP = {
       '#ffffff': { bg: '#ffffff', border: '#cbd5e1', text: '#1e293b' },
       '#fef08a': { bg: '#fef08a', border: '#f59e0b', text: '#78350f' },
@@ -75,7 +76,9 @@
     const NODE_WIDTH = 150;
     const NODE_HEIGHT = 100;
 
-    // --- HELPER DE AUTOLAYOUT (Recolocación inteligente) ---
+    // ============================================================================
+    // MOTOR DE AUTOLAYOUT (BOUNDING BOX HIERÁRQUICO)
+    // ============================================================================
     const applyLocalLayout = (parentId, currentNodes, currentEdges) => {
       const parent = currentNodes.find(n => n.id === parentId);
       if (!parent) return currentNodes;
@@ -85,6 +88,7 @@
 
       const groups = { right: [], left: [], top: [], bottom: [] };
       
+      // Agrupar hijos según su posición relativa general
       children.forEach(c => {
         const dx = c.x - parent.x;
         const dy = c.y - parent.y;
@@ -99,10 +103,11 @@
 
       let updatedNodes = [...currentNodes];
 
-      const getDescendants = (rootId) => {
-        const desc = new Set();
+      // Función que calcula el tamaño real de toda una rama (Bounding Box)
+      const getSubtree = (rootId) => {
+        const desc = new Set([rootId]);
         const queue = [rootId];
-        while (queue.length > 0) {
+        while(queue.length > 0) {
           const curr = queue.shift();
           currentEdges.forEach(e => {
             if (e.source === curr && !desc.has(e.target)) {
@@ -111,63 +116,106 @@
             }
           });
         }
-        return desc;
+        
+        let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity;
+        updatedNodes.forEach(n => {
+          if (desc.has(n.id)) {
+            minY = Math.min(minY, n.y);
+            maxY = Math.max(maxY, n.y + NODE_HEIGHT);
+            minX = Math.min(minX, n.x);
+            maxX = Math.max(maxX, n.x + NODE_WIDTH);
+          }
+        });
+        
+        return { desc, height: maxY - minY, width: maxX - minX, minY, maxY, minX, maxX };
       };
 
+      const GAP_Y = 30; // Margen de seguridad vertical entre ramas
+      const GAP_X = 40; // Margen de seguridad horizontal entre ramas
+
+      // Recalcular ramas que crecen en horizontal (apiladas verticalmente)
       ['right', 'left'].forEach(side => {
         const group = groups[side];
         if (group.length === 0) return;
         
-        group.sort((a, b) => a.y - b.y);
+        group.sort((a, b) => a.y - b.y); 
         
-        const totalHeight = (group.length - 1) * 160;
-        const startY = parent.y - totalHeight / 2;
+        const infos = group.map(c => {
+          const st = getSubtree(c.id);
+          return { node: c, st, topSpan: c.y - st.minY, bottomSpan: st.maxY - c.y };
+        });
+        
+        // La altura total ya no es "nodos * 160", sino la suma de las cajas reales + márgenes
+        const totalHeight = infos.reduce((sum, info) => sum + info.st.height, 0) + GAP_Y * (group.length - 1);
+        let currentY = parent.y + NODE_HEIGHT / 2 - totalHeight / 2;
 
-        group.forEach((c, index) => {
-          const targetY = startY + index * 160;
-          const dy = targetY - c.y;
+        infos.forEach(info => {
+          const targetY = currentY + info.topSpan;
+          const dy = targetY - info.node.y;
           
           if (dy !== 0) {
-            const desc = getDescendants(c.id);
             updatedNodes = updatedNodes.map(n => {
-              if (n.id === c.id || desc.has(n.id)) {
-                return { ...n, y: n.y + dy };
-              }
+              if (info.st.desc.has(n.id)) return { ...n, y: n.y + dy };
               return n;
             });
-            c.y = targetY; 
+            info.node.y += dy; // Actualizar ref para cálculos futuros en el mismo ciclo
           }
+          currentY += info.st.height + GAP_Y;
         });
       });
 
+      // Recalcular ramas que crecen en vertical (apiladas horizontalmente)
       ['top', 'bottom'].forEach(side => {
         const group = groups[side];
         if (group.length === 0) return;
         
-        group.sort((a, b) => a.x - b.x);
+        group.sort((a, b) => a.x - b.x); 
         
-        const totalWidth = (group.length - 1) * 220;
-        const startX = parent.x - totalWidth / 2;
+        const infos = group.map(c => {
+          const st = getSubtree(c.id);
+          return { node: c, st, leftSpan: c.x - st.minX, rightSpan: st.maxX - c.x };
+        });
+        
+        const totalWidth = infos.reduce((sum, info) => sum + info.st.width, 0) + GAP_X * (group.length - 1);
+        let currentX = parent.x + NODE_WIDTH / 2 - totalWidth / 2;
 
-        group.forEach((c, index) => {
-          const targetX = startX + index * 220;
-          const dx = targetX - c.x;
+        infos.forEach(info => {
+          const targetX = currentX + info.leftSpan;
+          const dx = targetX - info.node.x;
           
           if (dx !== 0) {
-            const desc = getDescendants(c.id);
             updatedNodes = updatedNodes.map(n => {
-              if (n.id === c.id || desc.has(n.id)) {
-                return { ...n, x: n.x + dx };
-              }
+              if (info.st.desc.has(n.id)) return { ...n, x: n.x + dx };
               return n;
             });
-            c.x = targetX;
+            info.node.x += dx;
           }
+          currentX += info.st.width + GAP_X;
         });
       });
 
       return updatedNodes;
     };
+
+    // BURBUJEO DE LAYOUT: Recorre desde un nodo hacia la raíz avisando a los padres
+    // de que los tamaños han cambiado y deben separar las ramas.
+    const updateTreeLayout = (startNodeId, currentNodes, currentEdges) => {
+        let updatedNodes = [...currentNodes];
+        let curr = startNodeId;
+        
+        const getParent = (id) => {
+            const edge = currentEdges.find(e => e.target === id);
+            return edge ? edge.source : null;
+        };
+
+        // Recorremos desde el nodo modificado hacia la raíz
+        while (curr) {
+            updatedNodes = applyLocalLayout(curr, updatedNodes, currentEdges);
+            curr = getParent(curr);
+        }
+        return updatedNodes;
+    };
+
 
     // --- APLICACIÓN PRINCIPAL ---
     function App() {
@@ -186,7 +234,7 @@
       
       const [showSaveModal, setShowSaveModal] = useState(false);
       const [fileName, setFileName] = useState('mi_diagrama');
-      const [fileHandle, setFileHandle] = useState(null); // Nuevo estado para el "guardado silencioso"
+      const [fileHandle, setFileHandle] = useState(null); 
       
       const [showNewModal, setShowNewModal] = useState(false);
       const fileInputRef = useRef(null);
@@ -194,7 +242,6 @@
       const handleDeleteSelected = useCallback(() => {
         if (selectedNodes.size === 0) return;
         
-        // Encontrar a los padres de los nodos que vamos a borrar para luego recolocar a sus hermanos
         const parentsToUpdate = new Set();
         edges.forEach(edge => {
           if (selectedNodes.has(edge.target) && !selectedNodes.has(edge.source)) {
@@ -202,11 +249,9 @@
           }
         });
         
-        // Encontrar todos los descendientes (hijos, nietos...) de los nodos seleccionados
         const nodesToDelete = new Set(selectedNodes);
         let addedNew = true;
         
-        // Bucle que recorre las conexiones hasta encontrar a todos los descendientes
         while (addedNew) {
           addedNew = false;
           edges.forEach(edge => {
@@ -220,10 +265,10 @@
         let newNodes = nodes.filter(n => !nodesToDelete.has(n.id));
         let newEdges = edges.filter(e => !nodesToDelete.has(e.source) && !nodesToDelete.has(e.target));
 
-        // Recolocación inteligente: centramos los hermanos que quedan
+        // Cierre de huecos con el nuevo motor
         parentsToUpdate.forEach(parentId => {
           if (newNodes.some(n => n.id === parentId)) {
-            newNodes = applyLocalLayout(parentId, newNodes, newEdges);
+            newNodes = updateTreeLayout(parentId, newNodes, newEdges);
           }
         });
 
@@ -235,7 +280,7 @@
           return newCollapsed;
         });
         setSelectedNodes(new Set());
-        setToast('Figuras borradas y recolocadas');
+        setToast('Figuras borradas y huecos cerrados');
         setTimeout(() => setToast(''), 3000);
       }, [selectedNodes, edges, nodes]);
 
@@ -248,7 +293,7 @@
         setSelectionBox(null);
         setActiveMenu(null);
         setFileName('mi_diagrama');
-        setFileHandle(null); // Reseteamos el archivo actual
+        setFileHandle(null); 
         setShowNewModal(false);
         setToast('Nuevo diagrama creado');
         setTimeout(() => setToast(''), 3000);
@@ -256,18 +301,11 @@
 
       const handleAddLooseNode = useCallback(() => {
         const newId = generateId();
-        // Calcular el centro exacto de la pantalla actual teniendo en cuenta el desplazamiento (pan)
         const nx = -pan.x + window.innerWidth / 2 - NODE_WIDTH / 2;
         const ny = -pan.y + window.innerHeight / 2 - NODE_HEIGHT / 2;
         
         setNodes(prev => [...prev, { 
-          id: newId, 
-          type: 'rectangle', 
-          text: '', 
-          x: nx, 
-          y: ny, 
-          color: '#ffffff', 
-          comment: '' 
+          id: newId, type: 'rectangle', text: '', x: nx, y: ny, color: '#ffffff', comment: '' 
         }]);
         
         setToast('Figura suelta añadida');
@@ -280,7 +318,6 @@
             if (document.activeElement.isContentEditable || document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
             handleDeleteSelected();
           }
-          // Atajo rápido: Ctrl+S o Cmd+S para guardar machacando
           if ((e.ctrlKey || e.metaKey) && e.key === 's') {
             e.preventDefault();
             handleSaveClick();
@@ -292,13 +329,17 @@
 
       const { visibleNodes, visibleEdges } = useMemo(() => {
         const hiddenNodes = new Set();
-        const traverse = (nodeId, isParentHidden) => {
+        const traverse = (nodeId, isParentHidden, visited = new Set()) => {
+          if (visited.has(nodeId)) return;
+          visited.add(nodeId);
           if (isParentHidden) hiddenNodes.add(nodeId);
           const childrenEdges = edges.filter(e => e.source === nodeId);
           const hideChildren = isParentHidden || collapsedNodes.has(nodeId);
-          childrenEdges.forEach(e => traverse(e.target, hideChildren));
+          childrenEdges.forEach(e => traverse(e.target, hideChildren, new Set(visited)));
         };
         const roots = nodes.filter(n => !edges.some(e => e.target === n.id));
+        if (roots.length === 0 && nodes.length > 0) roots.push(nodes[0]); 
+        
         roots.forEach(r => traverse(r.id, false));
         const vNodes = nodes.filter(n => !hiddenNodes.has(n.id));
         const vEdges = edges.filter(e => !hiddenNodes.has(e.target) && !hiddenNodes.has(e.source) && !collapsedNodes.has(e.source));
@@ -309,7 +350,7 @@
         if (e.target.closest('.no-drag')) return; 
         e.target.setPointerCapture(e.pointerId);
         setActiveMenu(null);
-        if (mode === 'pan') {
+        if (mode === 'pan' || mode === 'connect') { 
           setDragInfo({ type: 'canvas', lastX: e.clientX, lastY: e.clientY });
           setSelectedNodes(new Set());
         } else {
@@ -320,6 +361,19 @@
       };
 
       const handlePointerDownNode = (e, nodeId) => {
+        if (mode === 'connect') {
+          e.stopPropagation();
+          e.target.setPointerCapture(e.pointerId);
+          const appContainer = document.getElementById('root').firstChild;
+          const rect = appContainer.getBoundingClientRect();
+          const canvasX = e.clientX - rect.left - pan.x;
+          const canvasY = e.clientY - rect.top - pan.y;
+
+          setDragInfo({ type: 'connect', id: nodeId, canvasX, canvasY });
+          setActiveMenu(null);
+          return;
+        }
+
         if (!selectedNodes.has(nodeId)) {
           if (e.shiftKey) setSelectedNodes(prev => new Set([...prev, nodeId]));
           else setSelectedNodes(new Set([nodeId]));
@@ -332,6 +386,15 @@
       };
 
       const handlePointerMove = useCallback((e) => {
+        if (dragInfo && dragInfo.type === 'connect') {
+          const appContainer = document.getElementById('root').firstChild;
+          const rect = appContainer.getBoundingClientRect();
+          const canvasX = e.clientX - rect.left - pan.x;
+          const canvasY = e.clientY - rect.top - pan.y;
+          setDragInfo(prev => ({ ...prev, canvasX, canvasY }));
+          return;
+        }
+
         if (selectionBox) {
           const rect = e.currentTarget.getBoundingClientRect();
           setSelectionBox(prev => ({ ...prev, endX: e.clientX - rect.left - pan.x, endY: e.clientY - rect.top - pan.y }));
@@ -354,6 +417,54 @@
       }, [dragInfo, selectionBox, selectedNodes, pan]);
 
       const handlePointerUp = useCallback((e) => {
+        if (dragInfo && dragInfo.type === 'connect') {
+          e.target.releasePointerCapture(e.pointerId);
+          const appContainer = document.getElementById('root').firstChild;
+          const rect = appContainer.getBoundingClientRect();
+          const dropX = e.clientX - rect.left - pan.x;
+          const dropY = e.clientY - rect.top - pan.y;
+
+          const targetNode = visibleNodes.find(n => 
+              dropX >= n.x && dropX <= n.x + NODE_WIDTH &&
+              dropY >= n.y && dropY <= n.y + NODE_HEIGHT
+          );
+
+          if (targetNode && targetNode.id !== dragInfo.id) {
+            const exists = edges.some(edge => edge.source === dragInfo.id && edge.target === targetNode.id);
+            
+            const wouldCreateCycle = (startId, endId) => {
+                const visited = new Set();
+                const queue = [endId];
+                while(queue.length > 0) {
+                    const current = queue.shift();
+                    if (current === startId) return true;
+                    if (!visited.has(current)) {
+                        visited.add(current);
+                        edges.filter(edge => edge.source === current).forEach(edge => queue.push(edge.target));
+                    }
+                }
+                return false;
+            };
+
+            if (exists) {
+                setToast('Esta conexión ya existe');
+            } else if (wouldCreateCycle(dragInfo.id, targetNode.id)) {
+                setToast('Acción bloqueada: No se pueden crear bucles infinitos');
+            } else {
+                const newEdges = [...edges, { source: dragInfo.id, target: targetNode.id }];
+                // Magia: Forzar auto-layout global al crear una conexión manual
+                const newNodes = updateTreeLayout(dragInfo.id, nodes, newEdges);
+                setNodes(newNodes);
+                setEdges(newEdges);
+                setToast('Figuras conectadas con éxito');
+            }
+            setTimeout(() => setToast(''), 3000);
+          }
+          
+          setDragInfo(null);
+          return;
+        }
+
         if (dragInfo) { e.target.releasePointerCapture(e.pointerId); setDragInfo(null); }
         if (selectionBox) {
           const left = Math.min(selectionBox.startX, selectionBox.endX);
@@ -367,35 +478,28 @@
           setSelectedNodes(newSelection);
           setSelectionBox(null);
         }
-      }, [dragInfo, selectionBox, visibleNodes]);
+      }, [dragInfo, selectionBox, visibleNodes, edges, nodes]);
 
-      // --- SISTEMA DE GUARDADO SILENCIOSO (MACHACAR) ---
       const handleSaveClick = async () => {
         const data = { nodes, edges, collapsedNodes: Array.from(collapsedNodes), pan };
         const jsonString = JSON.stringify(data, null, 2);
         try {
           if (window.showSaveFilePicker) {
-            let handle = fileHandle; // Intentamos usar el handle que ya tenemos memorizado
-            
-            // Si NO tenemos un handle (archivo nuevo), sacamos el explorador para que el usuario elija dónde guardarlo
+            let handle = fileHandle; 
             if (!handle) {
               handle = await window.showSaveFilePicker({ 
                 suggestedName: `${fileName}.json`, 
                 types: [{ description: 'Archivo JSON', accept: { 'application/json': ['.json'] } }] 
               });
-              setFileHandle(handle); // Guardamos la referencia para que las próximas veces machaque directamente
+              setFileHandle(handle); 
               setFileName(handle.name.replace(/\.json$/, ''));
             }
-            
-            // Si tenemos handle (sea nuevo o de antes), escribimos directamente (Machaca)
             const writable = await handle.createWritable();
             await writable.write(jsonString);
             await writable.close();
-            
             setToast(`¡Diagrama guardado en ${handle.name}!`);
             setTimeout(() => setToast(''), 3000);
           } else {
-            // Fallback antiguo si su navegador no es compatible
             setShowSaveModal(true);
           }
         } catch (error) {
@@ -416,7 +520,6 @@
         setTimeout(() => setToast(''), 3000);
       };
 
-      // --- SISTEMA DE CARGA QUE OBTIENE LA REFERENCIA AL ARCHIVO ---
       const handleLoadClick = async () => {
         if (window.showOpenFilePicker) {
           try {
@@ -427,13 +530,10 @@
             const text = await file.text();
             const parsed = JSON.parse(text);
             
-            setNodes(parsed.nodes || []); 
-            setEdges(parsed.edges || []); 
-            setCollapsedNodes(new Set(parsed.collapsedNodes || []));
-            setPan(parsed.pan || {x: 0, y: 0}); 
-            setSelectedNodes(new Set()); 
+            setNodes(parsed.nodes || []); setEdges(parsed.edges || []); setCollapsedNodes(new Set(parsed.collapsedNodes || []));
+            setPan(parsed.pan || {x: 0, y: 0}); setSelectedNodes(new Set()); 
             
-            setFileHandle(handle); // ¡Clave! Recordamos qué archivo hemos abierto
+            setFileHandle(handle);
             setFileName(handle.name.replace(/\.json$/, ''));
             
             setToast('Trabajo cargado correctamente');
@@ -442,12 +542,10 @@
             if (error.name !== 'AbortError') setToast('Error al cargar el archivo');
           }
         } else {
-          // Fallback para navegadores antiguos
           fileInputRef.current?.click();
         }
       };
 
-      // Fallback antiguo de carga
       const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -458,7 +556,7 @@
             setNodes(parsed.nodes || []); setEdges(parsed.edges || []); setCollapsedNodes(new Set(parsed.collapsedNodes || []));
             setPan(parsed.pan || {x: 0, y: 0}); setSelectedNodes(new Set()); 
             setFileName(file.name.replace(/\.json$/, ''));
-            setFileHandle(null); // Con este método antiguo no tenemos permisos para machacar
+            setFileHandle(null); 
             setToast('Trabajo cargado correctamente');
           } catch (error) { setToast('Error: El archivo no es válido'); }
           setTimeout(() => setToast(''), 3000);
@@ -471,19 +569,20 @@
         const sourceNode = nodes.find(n => n.id === sourceId);
         let nx = sourceNode.x, ny = sourceNode.y;
         
-        // Calcular los desplazamientos dependiendo de la dirección.
-        if (direction === 'right') { nx += 220; ny += 210; }
-        if (direction === 'left') { nx -= 220; ny += 210; }
-        if (direction === 'bottom') { ny += 160; nx += 150; }
-        if (direction === 'top') { ny -= 160; nx += 150; }
+        // Coordenadas con margen seguro para forzar al algoritmo a meterla 
+        // en el grupo correcto sin romper el cálculo de tamaños
+        if (direction === 'right') { nx += 260; ny += 250; }
+        if (direction === 'left') { nx -= 260; ny += 250; }
+        if (direction === 'bottom') { ny += 180; nx += 170; }
+        if (direction === 'top') { ny -= 180; nx += 170; }
         
         const newId = generateId();
         
         let newNodes = [...nodes, { id: newId, type: shapeType, text: '', x: nx, y: ny, color: '#ffffff', comment: '' }];
         let newEdges = [...edges, { source: sourceId, target: newId }];
 
-        // Aplicar la recolocación automática al padre para centrar a todos sus hijos elegantemente
-        newNodes = applyLocalLayout(sourceId, newNodes, newEdges);
+        // El nuevo algoritmo redimensiona toda la rama y empuja a las tías/hermanas sin superponerse
+        newNodes = updateTreeLayout(sourceId, newNodes, newEdges);
 
         setNodes(newNodes);
         setEdges(newEdges);
@@ -508,7 +607,7 @@
         // 1. Target está a la derecha (Sale por la derecha, entra por la izquierda)
         if (target.x >= source.x + NODE_WIDTH) {
           const startX = source.x + NODE_WIDTH;
-          const endX = target.x - 6; // -6 para la punta de la flecha
+          const endX = target.x - 6; 
           const midX = startX + (endX - startX) / 2;
           return `M ${startX} ${sy} L ${midX} ${sy} L ${midX} ${ty} L ${endX} ${ty}`;
         } 
@@ -533,19 +632,18 @@
           const midY = startY + (endY - startY) / 2;
           return `M ${sx} ${startY} L ${sx} ${midY} L ${tx} ${midY} L ${tx} ${endY}`;
         }
-        // 5. Fallback por defecto si están solapadas
-        else {
-          return `M ${sx} ${sy} L ${tx} ${ty}`;
-        }
+        
+        return `M ${sx} ${sy} L ${tx} ${ty}`;
       };
 
       return (
-        <div className="w-full h-screen relative bg-slate-50 overflow-hidden font-sans select-none" onPointerDown={handlePointerDownCanvas} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}>
+        <div className={`w-full h-screen relative bg-slate-50 overflow-hidden font-sans select-none ${mode === 'connect' ? 'cursor-crosshair' : ''}`} onPointerDown={handlePointerDownCanvas} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}>
           
-          {/* Barra de herramientas flotante estilo Figma/Miro */}
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-white/95 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.08)] rounded-xl border border-slate-200/80 p-1.5 flex gap-1 items-center" onPointerDown={(e) => e.stopPropagation()}>
             <button className={`p-2 rounded-lg transition-all ${mode === 'pan' ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => setMode('pan')} title="Mover Lienzo (Mano)"><Hand size={20} /></button>
             <button className={`p-2 rounded-lg transition-all ${mode === 'select' ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => setMode('select')} title="Seleccionar Grupo (Flecha)"><MousePointer2 size={20} /></button>
+            <button className={`p-2 rounded-lg transition-all ${mode === 'connect' ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => setMode('connect')} title="Conectar figuras libremente"><LinkIcon size={20} /></button>
+            
             <div className="w-px h-6 bg-slate-200 mx-1"></div>
             <button className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-all" onClick={handleAddLooseNode} title="Añadir figura suelta"><PlusSquare size={20} /></button>
             <div className="w-px h-6 bg-slate-200 mx-1"></div>
@@ -559,30 +657,36 @@
 
           {toast && <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur text-white px-5 py-2.5 rounded-full shadow-lg text-sm font-medium transition-all">{toast}</div>}
 
-          {/* Fondo cuadriculado limpio */}
           <div className="absolute inset-0 z-0 pointer-events-none" style={{ backgroundImage: `radial-gradient(#cbd5e1 1.5px, transparent 1.5px)`, backgroundSize: '24px 24px', backgroundPosition: `${pan.x}px ${pan.y}px` }} />
 
           <div className="absolute inset-0" style={{ transform: `translate(${pan.x}px, ${pan.y}px)`, transformOrigin: '0 0' }}>
             
-            {/* Capa de aristas / líneas de flujo */}
             <svg className="absolute inset-0 w-full h-full overflow-visible pointer-events-none z-10">
               <defs>
-                {/* Marcador de punta de flecha estilizada */}
                 <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                   <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#94a3b8" />
                 </marker>
               </defs>
               {visibleEdges.map(edge => <path key={`${edge.source}-${edge.target}`} d={getOrthogonalPath(edge.source, edge.target)} fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinejoin="round" markerEnd="url(#arrow)" />)}
+              
+              {dragInfo && dragInfo.type === 'connect' && dragInfo.canvasX !== undefined && (
+                <path 
+                  d={`M ${(nodes.find(n => n.id === dragInfo.id)?.x || 0) + NODE_WIDTH / 2} ${(nodes.find(n => n.id === dragInfo.id)?.y || 0) + NODE_HEIGHT / 2} L ${dragInfo.canvasX} ${dragInfo.canvasY}`} 
+                  fill="none" 
+                  stroke="#3b82f6" 
+                  strokeWidth="2.5" 
+                  strokeDasharray="5,5" 
+                  strokeLinejoin="round" 
+                />
+              )}
             </svg>
 
-            {/* Capa de figuras */}
             <div className="absolute inset-0 pointer-events-none z-20">
               {visibleNodes.map(node => (
-                <Node key={node.id} node={node} edges={edges} isCollapsed={collapsedNodes.has(node.id)} isSelected={selectedNodes.has(node.id)} activeMenu={activeMenu?.nodeId === node.id ? activeMenu : null} setActiveMenu={setActiveMenu} onPointerDown={(e) => handlePointerDownNode(e, node.id)} onAdd={handleAddNode} onTextChange={(id, txt) => setNodes(prev => prev.map(n => n.id === id ? { ...n, text: txt } : n))} onColorChange={(id, clr) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, color: clr } : n)); setActiveMenu(null); }} onCommentChange={(id, cmt) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, comment: cmt } : n)); }} onToggleCollapse={() => { const nc = new Set(collapsedNodes); nc.has(node.id) ? nc.delete(node.id) : nc.add(node.id); setCollapsedNodes(nc); }} />
+                <Node key={node.id} mode={mode} node={node} edges={edges} isCollapsed={collapsedNodes.has(node.id)} isSelected={selectedNodes.has(node.id)} activeMenu={activeMenu?.nodeId === node.id ? activeMenu : null} setActiveMenu={setActiveMenu} onPointerDown={(e) => handlePointerDownNode(e, node.id)} onAdd={handleAddNode} onTextChange={(id, txt) => setNodes(prev => prev.map(n => n.id === id ? { ...n, text: txt } : n))} onColorChange={(id, clr) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, color: clr } : n)); setActiveMenu(null); }} onCommentChange={(id, cmt) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, comment: cmt } : n)); }} onToggleCollapse={() => { const nc = new Set(collapsedNodes); nc.has(node.id) ? nc.delete(node.id) : nc.add(node.id); setCollapsedNodes(nc); }} />
               ))}
             </div>
 
-            {/* Cuadro de selección de área */}
             {selectionBox && <div className="absolute border-2 border-blue-500 bg-blue-500/10 z-50 pointer-events-none rounded" style={{ left: Math.min(selectionBox.startX, selectionBox.endX), top: Math.min(selectionBox.startY, selectionBox.endY), width: Math.abs(selectionBox.startX - selectionBox.endX), height: Math.abs(selectionBox.startY - selectionBox.endY) }} />}
           </div>
 
@@ -592,7 +696,6 @@
             </div>
           )}
 
-          {/* Modales rediseñados */}
           {showNewModal && (
             <div className="absolute inset-0 z-[100] flex items-center justify-center bg-slate-900/30 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
               <div className="bg-white rounded-2xl shadow-2xl p-6 w-80 border border-slate-100 animate-in zoom-in-95 duration-150">
@@ -616,8 +719,7 @@
       );
     }
 
-    // --- COMPONENTE INTERACTIVO DE FIGURA ---
-    function Node({ node, edges, isCollapsed, isSelected, activeMenu, setActiveMenu, onPointerDown, onAdd, onTextChange, onColorChange, onCommentChange, onToggleCollapse }) {
+    function Node({ mode, node, edges, isCollapsed, isSelected, activeMenu, setActiveMenu, onPointerDown, onAdd, onTextChange, onColorChange, onCommentChange, onToggleCollapse }) {
       const [isHovered, setIsHovered] = useState(false);
       const hasChildren = edges.some(e => e.source === node.id);
       
@@ -632,19 +734,15 @@
       };
 
       return (
-        <div className={`absolute pointer-events-auto transition-all duration-150 ${isSelected ? 'ring-2 ring-blue-500 ring-offset-2 rounded-xl' : ''}`} style={{ width: NODE_WIDTH, height: NODE_HEIGHT, transform: `translate(${node.x}px, ${node.y}px)` }} onPointerDown={onPointerDown} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
+        <div className={`absolute pointer-events-auto transition-all duration-150 ${isSelected ? 'ring-2 ring-blue-500 ring-offset-2 rounded-xl' : ''} ${mode === 'connect' ? 'cursor-crosshair hover:ring-2 hover:ring-blue-400 hover:ring-offset-1 hover:rounded-xl' : 'cursor-grab active:cursor-grabbing'}`} style={{ width: NODE_WIDTH, height: NODE_HEIGHT, transform: `translate(${node.x}px, ${node.y}px)` }} onPointerDown={onPointerDown} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
           
-          {/* Gráfico SVG de la figura */}
           <ShapeSVG type={node.type} palette={palette} />
           
-          {/* Cuadro de texto enriquecido integrado */}
-          <div contentEditable suppressContentEditableWarning className="no-drag absolute inset-0 m-4 flex items-center justify-center text-center outline-none focus:bg-white/30 rounded-lg transition-all font-semibold text-sm leading-snug" onBlur={(e) => onTextChange(node.id, e.target.innerText)} style={{ wordBreak: 'break-word', color: palette.text }}>{node.text}</div>
+          <div contentEditable suppressContentEditableWarning className={`no-drag absolute inset-0 m-4 flex items-center justify-center text-center outline-none focus:bg-white/30 rounded-lg transition-all font-semibold text-sm leading-snug ${mode === 'connect' ? 'pointer-events-none' : ''}`} onBlur={(e) => onTextChange(node.id, e.target.innerText)} style={{ wordBreak: 'break-word', color: palette.text }}>{node.text}</div>
           
-          {/* UI de control: Colapsar árbol */}
-          {hasChildren && <button className="no-drag absolute -bottom-3 -right-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-md text-slate-500 hover:text-slate-800 z-30 transition-transform hover:scale-110 active:scale-95" onPointerDown={(e) => { e.stopPropagation(); onToggleCollapse(); }} title={isCollapsed ? "Expandir" : "Contraer"}>{isCollapsed ? <Plus size={14} /> : <Minus size={14} />}</button>}
+          {hasChildren && mode !== 'connect' && <button className="no-drag absolute -bottom-3 -right-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-md text-slate-500 hover:text-slate-800 z-30 transition-transform hover:scale-110 active:scale-95" onPointerDown={(e) => { e.stopPropagation(); onToggleCollapse(); }} title={isCollapsed ? "Expandir" : "Contraer"}>{isCollapsed ? <Plus size={14} /> : <Minus size={14} />}</button>}
           
-          {/* UI de control: Comentario / Notas (Con marca de notificación) */}
-          {(isHovered || activeMenu?.type === 'comment' || (node.comment && node.comment.trim() !== '')) && (
+          {(isHovered || activeMenu?.type === 'comment' || (node.comment && node.comment.trim() !== '')) && mode !== 'connect' && (
             <button 
               className={`no-drag absolute -top-3 -left-3 w-7 h-7 rounded-full flex items-center justify-center shadow-md z-30 transition-transform hover:scale-110 active:scale-95 border ${node.comment && node.comment.trim() !== '' ? 'bg-amber-50 border-amber-300 text-amber-500' : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800'}`} 
               onPointerDown={(e) => { e.stopPropagation(); setActiveMenu(activeMenu?.type === 'comment' && activeMenu.nodeId === node.id ? null : { nodeId: node.id, type: 'comment' }); }} 
@@ -652,7 +750,6 @@
             >
               <MessageSquare size={14} fill={node.comment && node.comment.trim() !== '' ? "currentColor" : "none"} />
               
-              {/* Marca visual (Puntito naranja con latido) si hay comentario */}
               {node.comment && node.comment.trim() !== '' && (
                 <span className="absolute -top-1 -right-1 flex h-3.5 w-3.5">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
@@ -662,7 +759,6 @@
             </button>
           )}
 
-          {/* Menú de Editor de Comentario */}
           {activeMenu?.type === 'comment' && (
             <div className="no-drag absolute z-50 bg-white/95 backdrop-blur border border-slate-200 shadow-xl rounded-xl p-3 w-56 animate-in fade-in zoom-in-95 duration-100 flex flex-col gap-2" style={{ bottom: '100%', left: '0', marginBottom: '16px' }} onPointerDown={(e) => e.stopPropagation()}>
               <textarea
@@ -681,8 +777,7 @@
             </div>
           )}
           
-          {/* UI de control: Selector de color */}
-          {(isHovered || activeMenu?.type === 'color') && <button className="no-drag absolute -top-3 -right-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-md text-slate-500 hover:text-slate-800 z-30 transition-transform hover:scale-110 active:scale-95" onPointerDown={(e) => { e.stopPropagation(); setActiveMenu({ nodeId: node.id, type: 'color' }); }} title="Colorear"><Palette size={14} /></button>}
+          {(isHovered || activeMenu?.type === 'color') && mode !== 'connect' && <button className="no-drag absolute -top-3 -right-3 w-7 h-7 bg-white border border-slate-200 rounded-full flex items-center justify-center shadow-md text-slate-500 hover:text-slate-800 z-30 transition-transform hover:scale-110 active:scale-95" onPointerDown={(e) => { e.stopPropagation(); setActiveMenu({ nodeId: node.id, type: 'color' }); }} title="Colorear"><Palette size={14} /></button>}
           
           {activeMenu?.type === 'color' && (
             <div className="no-drag absolute -top-14 left-1/2 -translate-x-1/2 z-40 bg-white border border-slate-200/80 rounded-xl shadow-xl p-1.5 flex gap-1.5 animate-in fade-in zoom-in-95 duration-100" onPointerDown={(e) => e.stopPropagation()}>
@@ -690,8 +785,7 @@
             </div>
           )}
 
-          {/* Flechas direccionales rápidas */}
-          {(isHovered || activeMenu?.type === 'add') && (
+          {(isHovered || activeMenu?.type === 'add') && mode !== 'connect' && (
             <>
               <ArrowButton direction="top" icon={<ChevronUp size={16} />} onLeftClick={() => onAdd(node.id, 'top', node.type)} onRightClick={() => setActiveMenu({ nodeId: node.id, type: 'add', direction: 'top' })} />
               <ArrowButton direction="right" icon={<ChevronRight size={16} />} onLeftClick={() => onAdd(node.id, 'right', node.type)} onRightClick={() => setActiveMenu({ nodeId: node.id, type: 'add', direction: 'right' })} />
@@ -700,7 +794,6 @@
             </>
           )}
 
-          {/* Desplegable de selección de forma */}
           {activeMenu?.type === 'add' && (
             <div className="no-drag absolute z-50 bg-white/95 backdrop-blur border border-slate-200 shadow-xl rounded-xl p-1.5 flex gap-1.5 animate-in fade-in zoom-in-95 duration-100" style={getMenuPos(activeMenu.direction)} onPointerDown={(e) => e.stopPropagation()}>
               <button className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" onPointerDown={(e) => { e.stopPropagation(); onAdd(node.id, activeMenu.direction, 'rectangle'); }} title="Añadir Rectángulo"><Square size={20} /></button>
@@ -713,19 +806,16 @@
       );
     }
 
-    // --- RENDERIZADOR DE VECTORES SVG CON CAPA DE ILUMINACIÓN ---
     const ShapeSVG = ({ type, palette }) => {
       return (
         <svg width={NODE_WIDTH} height={NODE_HEIGHT} className="absolute inset-0 z-0 pointer-events-none drop-shadow-[0_4px_10px_rgba(0,0,0,0.06)] overflow-visible">
           <defs>
-            {/* Gradiente sutil para dotar de volumen tridimensional a las figuras */}
             <linearGradient id="sheen" x1="0%" y1="0%" x2="0%" y2="100%">
               <stop offset="0%" stopColor="#ffffff" stopOpacity="0.25" />
               <stop offset="100%" stopColor="#000000" stopOpacity="0.04" />
             </linearGradient>
           </defs>
           
-          {/* Base de la Figura */}
           {type === 'rectangle' && (
             <g>
               <rect x="2" y="2" width={NODE_WIDTH - 4} height={NODE_HEIGHT - 4} rx="12" fill={palette.bg} stroke={palette.border} strokeWidth="2.5" />
@@ -769,7 +859,6 @@
       );
     };
 
-    // --- ENLACE A RAÍZ ---
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
