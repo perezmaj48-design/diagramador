@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diagramador de Figuras</title>
+  
+  <!-- Carga de Tailwind CSS para los estilos -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Carga de React -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Carga de Babel (Compila JSX a JS nativo en el navegador) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* Pequeñas correcciones por defecto */
+    body { margin: 0; padding: 0; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+    // --- ICONOS (Convertidos a SVG en línea para no depender de librerías externas) ---
+    const ChevronUp = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>;
+    const ChevronDown = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>;
+    const ChevronLeft = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>;
+    const ChevronRight = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>;
+    const Square = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>;
+    const Circle = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/></svg>;
+    const Pentagon = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 22 8.5 18.2 22 5.8 22 2 8.5"/></svg>;
+    const Diamond = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 22 12 12 22 2 12"/></svg>;
+    const Palette = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.55-2.503 5.55-5.554C21.965 6.012 17.461 2 12 2z"/></svg>;
+    const Plus = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>;
+    const Minus = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/></svg>;
+    const MousePointer2 = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m4 4 7.07 17 2.51-7.39L21 11.07z"/></svg>;
+    const Hand = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></svg>;
+    const Save = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>;
+    const FolderOpen = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/></svg>;
+    const Trash2 = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>;
+    const FilePlus = ({size=24}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/></svg>;
+
+    // --- CONSTANTES ---
+    const generateId = () => Math.random().toString(36).substring(2, 9);
+    const COLORS = ['#ffffff', '#fef08a', '#bbf7d0', '#bfdbfe', '#fbcfe8', '#fed7aa', '#e2e8f0'];
+    const NODE_WIDTH = 150;
+    const NODE_HEIGHT = 100;
+
+    // --- APLICACIÓN PRINCIPAL ---
+    function App() {
+      const [nodes, setNodes] = useState([{
+        id: 'root-1', type: 'rectangle', text: 'Inicio', x: 350, y: 200, color: '#ffffff'
+      }]);
+      const [edges, setEdges] = useState([]);
+      const [collapsedNodes, setCollapsedNodes] = useState(new Set());
+      const [pan, setPan] = useState({ x: 0, y: 0 });
+      const [dragInfo, setDragInfo] = useState(null);
+      const [mode, setMode] = useState('pan');
+      const [selectionBox, setSelectionBox] = useState(null);
+      const [selectedNodes, setSelectedNodes] = useState(new Set());
+      const [toast, setToast] = useState('');
+      const [activeMenu, setActiveMenu] = useState(null);
+      const [showSaveModal, setShowSaveModal] = useState(false);
+      const [fileName, setFileName] = useState('mi_diagrama');
+      const [showNewModal, setShowNewModal] = useState(false);
+      const fileInputRef = useRef(null);
+
+      const handleDeleteSelected = useCallback(() => {
+        if (selectedNodes.size === 0) return;
+        setNodes(prev => prev.filter(n => !selectedNodes.has(n.id)));
+        setEdges(prev => prev.filter(e => !selectedNodes.has(e.source) && !selectedNodes.has(e.target)));
+        setCollapsedNodes(prev => {
+          const newCollapsed = new Set(prev);
+          selectedNodes.forEach(id => newCollapsed.delete(id));
+          return newCollapsed;
+        });
+        setSelectedNodes(new Set());
+        setToast('Figuras borradas');
+        setTimeout(() => setToast(''), 3000);
+      }, [selectedNodes]);
+
+      const handleNewDiagram = useCallback(() => {
+        setNodes([{ id: generateId(), type: 'rectangle', text: 'Inicio', x: 350, y: 200, color: '#ffffff' }]);
+        setEdges([]);
+        setCollapsedNodes(new Set());
+        setPan({ x: 0, y: 0 });
+        setSelectedNodes(new Set());
+        setSelectionBox(null);
+        setActiveMenu(null);
+        setShowNewModal(false);
+        setToast('Nuevo diagrama creado');
+        setTimeout(() => setToast(''), 3000);
+      }, []);
+
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodes.size > 0) {
+            if (document.activeElement.isContentEditable || document.activeElement.tagName === 'INPUT') return;
+            handleDeleteSelected();
+          }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+      }, [selectedNodes, handleDeleteSelected]);
+
+      const { visibleNodes, visibleEdges } = useMemo(() => {
+        const hiddenNodes = new Set();
+        const traverse = (nodeId, isParentHidden) => {
+          if (isParentHidden) hiddenNodes.add(nodeId);
+          const childrenEdges = edges.filter(e => e.source === nodeId);
+          const hideChildren = isParentHidden || collapsedNodes.has(nodeId);
+          childrenEdges.forEach(e => traverse(e.target, hideChildren));
+        };
+        const roots = nodes.filter(n => !edges.some(e => e.target === n.id));
+        roots.forEach(r => traverse(r.id, false));
+        const vNodes = nodes.filter(n => !hiddenNodes.has(n.id));
+        const vEdges = edges.filter(e => !hiddenNodes.has(e.target) && !hiddenNodes.has(e.source) && !collapsedNodes.has(e.source));
+        return { visibleNodes: vNodes, visibleEdges: vEdges };
+      }, [nodes, edges, collapsedNodes]);
+
+      const handlePointerDownCanvas = (e) => {
+        if (e.target.closest('.no-drag')) return; 
+        e.target.setPointerCapture(e.pointerId);
+        setActiveMenu(null);
+        if (mode === 'pan') {
+          setDragInfo({ type: 'canvas', lastX: e.clientX, lastY: e.clientY });
+          setSelectedNodes(new Set());
+        } else {
+          const rect = e.currentTarget.getBoundingClientRect();
+          setSelectionBox({ startX: e.clientX - rect.left - pan.x, startY: e.clientY - rect.top - pan.y, endX: e.clientX - rect.left - pan.x, endY: e.clientY - rect.top - pan.y });
+          setSelectedNodes(new Set());
+        }
+      };
+
+      const handlePointerDownNode = (e, nodeId) => {
+        if (!selectedNodes.has(nodeId)) {
+          if (e.shiftKey) setSelectedNodes(prev => new Set([...prev, nodeId]));
+          else setSelectedNodes(new Set([nodeId]));
+        }
+        if (e.target.closest('.no-drag')) { e.stopPropagation(); return; }
+        e.stopPropagation();
+        e.target.setPointerCapture(e.pointerId);
+        setDragInfo({ type: 'node', id: nodeId, lastX: e.clientX, lastY: e.clientY });
+        setActiveMenu(null);
+      };
+
+      const handlePointerMove = useCallback((e) => {
+        if (selectionBox) {
+          const rect = e.currentTarget.getBoundingClientRect();
+          setSelectionBox(prev => ({ ...prev, endX: e.clientX - rect.left - pan.x, endY: e.clientY - rect.top - pan.y }));
+          return;
+        }
+        if (!dragInfo) return;
+        const dx = e.clientX - dragInfo.lastX;
+        const dy = e.clientY - dragInfo.lastY;
+
+        if (dragInfo.type === 'node') {
+          setNodes(prev => prev.map(n => {
+            if (selectedNodes.has(dragInfo.id) && selectedNodes.has(n.id)) return { ...n, x: n.x + dx, y: n.y + dy };
+            if (n.id === dragInfo.id) return { ...n, x: n.x + dx, y: n.y + dy };
+            return n;
+          }));
+        } else if (dragInfo.type === 'canvas') {
+          setPan(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+        }
+        setDragInfo({ ...dragInfo, lastX: e.clientX, lastY: e.clientY });
+      }, [dragInfo, selectionBox, selectedNodes, pan]);
+
+      const handlePointerUp = useCallback((e) => {
+        if (dragInfo) { e.target.releasePointerCapture(e.pointerId); setDragInfo(null); }
+        if (selectionBox) {
+          const left = Math.min(selectionBox.startX, selectionBox.endX);
+          const right = Math.max(selectionBox.startX, selectionBox.endX);
+          const top = Math.min(selectionBox.startY, selectionBox.endY);
+          const bottom = Math.max(selectionBox.startY, selectionBox.endY);
+          const newSelection = new Set();
+          visibleNodes.forEach(n => {
+            if (n.x < right && n.x + NODE_WIDTH > left && n.y < bottom && n.y + NODE_HEIGHT > top) newSelection.add(n.id);
+          });
+          setSelectedNodes(newSelection);
+          setSelectionBox(null);
+        }
+      }, [dragInfo, selectionBox, visibleNodes]);
+
+      const handleSaveClick = async () => {
+        const data = { nodes, edges, collapsedNodes: Array.from(collapsedNodes), pan };
+        const jsonString = JSON.stringify(data, null, 2);
+        try {
+          if (window.showSaveFilePicker) {
+            const fileHandle = await window.showSaveFilePicker({ suggestedName: 'mi_diagrama.json', types: [{ description: 'Archivo JSON', accept: { 'application/json': ['.json'] } }] });
+            const writable = await fileHandle.createWritable();
+            await writable.write(jsonString);
+            await writable.close();
+            setToast('¡Diagrama guardado correctamente!');
+            setTimeout(() => setToast(''), 3000);
+          } else {
+            setShowSaveModal(true);
+          }
+        } catch (error) {
+          if (error.name !== 'AbortError') setShowSaveModal(true);
+        }
+      };
+
+      const executeSave = () => {
+        if (!fileName.trim()) return;
+        const data = { nodes, edges, collapsedNodes: Array.from(collapsedNodes), pan };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `${fileName.trim()}.json`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        setShowSaveModal(false);
+        setToast('¡Diagrama descargado correctamente!');
+        setTimeout(() => setToast(''), 3000);
+      };
+
+      const handleFileChange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const parsed = JSON.parse(event.target.result);
+            setNodes(parsed.nodes || []); setEdges(parsed.edges || []); setCollapsedNodes(new Set(parsed.collapsedNodes || []));
+            setPan(parsed.pan || {x: 0, y: 0}); setSelectedNodes(new Set()); setToast('Trabajo cargado correctamente');
+          } catch (error) { setToast('Error: El archivo no es válido'); }
+          setTimeout(() => setToast(''), 3000);
+          e.target.value = '';
+        };
+        reader.readAsText(file);
+      };
+
+      const handleAddNode = (sourceId, direction, shapeType) => {
+        const sourceNode = nodes.find(n => n.id === sourceId);
+        let nx = sourceNode.x, ny = sourceNode.y;
+        if (direction === 'right') nx += 220; if (direction === 'left') nx -= 220;
+        if (direction === 'top') ny -= 160; if (direction === 'bottom') ny += 160;
+        const newId = generateId();
+        setNodes([...nodes, { id: newId, type: shapeType, text: '', x: nx, y: ny, color: '#ffffff' }]);
+        setEdges([...edges, { source: sourceId, target: newId }]);
+        setActiveMenu(null);
+        if (collapsedNodes.has(sourceId)) {
+          const newCollapsed = new Set(collapsedNodes); newCollapsed.delete(sourceId); setCollapsedNodes(newCollapsed);
+        }
+      };
+
+      const getOrthogonalPath = (sourceId, targetId) => {
+        const source = nodes.find(n => n.id === sourceId); const target = nodes.find(n => n.id === targetId);
+        if (!source || !target) return '';
+        const sx = source.x + NODE_WIDTH / 2, sy = source.y + NODE_HEIGHT / 2;
+        const tx = target.x + NODE_WIDTH / 2, ty = target.y + NODE_HEIGHT / 2;
+        if (Math.abs(tx - sx) > Math.abs(ty - sy)) return `M ${sx} ${sy} L ${(sx + tx)/2} ${sy} L ${(sx + tx)/2} ${ty} L ${tx} ${ty}`;
+        else return `M ${sx} ${sy} L ${sx} ${(sy + ty)/2} L ${tx} ${(sy + ty)/2} L ${tx} ${ty}`;
+      };
+
+      return (
+        <div className="w-full h-screen relative bg-slate-50 overflow-hidden font-sans select-none" onPointerDown={handlePointerDownCanvas} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}>
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-white shadow-lg rounded-xl border border-slate-200 p-1.5 flex gap-1 items-center" onPointerDown={(e) => e.stopPropagation()}>
+            <button className={`p-2 rounded-lg transition-colors ${mode === 'pan' ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`} onClick={() => setMode('pan')} title="Mover Lienzo (Mano)"><Hand size={20} /></button>
+            <button className={`p-2 rounded-lg transition-colors ${mode === 'select' ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`} onClick={() => setMode('select')} title="Seleccionar Grupo (Flecha)"><MousePointer2 size={20} /></button>
+            <div className="w-px h-6 bg-slate-300 mx-1"></div>
+            <button className={`p-2 rounded-lg transition-colors ${selectedNodes.size > 0 ? 'text-red-600 hover:bg-red-50' : 'text-slate-300 cursor-not-allowed'}`} onClick={handleDeleteSelected} disabled={selectedNodes.size === 0} title="Borrar selección (Supr)"><Trash2 size={20} /></button>
+            <div className="w-px h-6 bg-slate-300 mx-1"></div>
+            <button className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors" onClick={() => setShowNewModal(true)} title="Nuevo diagrama"><FilePlus size={20} /></button>
+            <button className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors" onClick={handleSaveClick} title="Guardar trabajo"><Save size={20} /></button>
+            <button className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors" onClick={() => fileInputRef.current?.click()} title="Cargar trabajo"><FolderOpen size={20} /></button>
+            <input type="file" accept=".json" style={{ display: 'none' }} ref={fileInputRef} onChange={handleFileChange} />
+          </div>
+
+          {toast && <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-800 text-white px-4 py-2 rounded-full shadow-lg transition-all">{toast}</div>}
+
+          <div className="absolute inset-0 z-0 pointer-events-none" style={{ backgroundImage: `radial-gradient(#cbd5e1 1.5px, transparent 1.5px)`, backgroundSize: '24px 24px', backgroundPosition: `${pan.x}px ${pan.y}px` }} />
+
+          <div className="absolute inset-0" style={{ transform: `translate(${pan.x}px, ${pan.y}px)`, transformOrigin: '0 0' }}>
+            <svg className="absolute inset-0 w-full h-full overflow-visible pointer-events-none z-10">
+              {visibleEdges.map(edge => <path key={`${edge.source}-${edge.target}`} d={getOrthogonalPath(edge.source, edge.target)} fill="none" stroke="#94a3b8" strokeWidth="3" strokeLinejoin="round" />)}
+            </svg>
+            <div className="absolute inset-0 pointer-events-none z-20">
+              {visibleNodes.map(node => (
+                <Node key={node.id} node={node} edges={edges} isCollapsed={collapsedNodes.has(node.id)} isSelected={selectedNodes.has(node.id)} activeMenu={activeMenu?.nodeId === node.id ? activeMenu : null} setActiveMenu={setActiveMenu} onPointerDown={(e) => handlePointerDownNode(e, node.id)} onAdd={handleAddNode} onTextChange={(id, txt) => setNodes(prev => prev.map(n => n.id === id ? { ...n, text: txt } : n))} onColorChange={(id, clr) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, color: clr } : n)); setActiveMenu(null); }} onToggleCollapse={() => { const nc = new Set(collapsedNodes); nc.has(node.id) ? nc.delete(node.id) : nc.add(node.id); setCollapsedNodes(nc); }} />
+              ))}
+            </div>
+            {selectionBox && <div className="absolute border border-blue-500 bg-blue-500/20 z-50 pointer-events-none" style={{ left: Math.min(selectionBox.startX, selectionBox.endX), top: Math.min(selectionBox.startY, selectionBox.endY), width: Math.abs(selectionBox.startX - selectionBox.endX), height: Math.abs(selectionBox.startY - selectionBox.endY) }} />}
+          </div>
+
+          {nodes.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+              <button className="pointer-events-auto flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-full shadow-lg" onClick={() => { setNodes([{ id: generateId(), type: 'rectangle', text: 'Inicio', x: -pan.x + window.innerWidth / 2 - NODE_WIDTH / 2, y: -pan.y + window.innerHeight / 2 - NODE_HEIGHT / 2, color: '#ffffff' }]); setMode('pan'); }}><Plus size={20} /> Añadir figura inicial</button>
+            </div>
+          )}
+
+          {showNewModal && (
+            <div className="absolute inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-80">
+                <h3 className="text-lg font-bold text-slate-800 mb-2">Nuevo diagrama</h3>
+                <p className="text-slate-600 mb-5 text-sm">¿Estás seguro de que quieres empezar un diagrama nuevo? Se perderán los cambios no guardados.</p>
+                <div className="flex justify-end gap-2"><button className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg" onClick={() => setShowNewModal(false)}>Cancelar</button><button className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg" onClick={handleNewDiagram}>Aceptar</button></div>
+              </div>
+            </div>
+          )}
+
+          {showSaveModal && (
+            <div className="absolute inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-80">
+                <h3 className="text-lg font-bold text-slate-800 mb-4">Guardar diagrama</h3>
+                <input type="text" className="w-full border border-slate-300 rounded-lg p-2.5 mb-5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700" value={fileName} onChange={(e) => setFileName(e.target.value)} autoFocus onKeyDown={(e) => e.key === 'Enter' && executeSave()} />
+                <div className="flex justify-end gap-2"><button className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg" onClick={() => setShowSaveModal(false)}>Cancelar</button><button className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg" onClick={executeSave}>Descargar</button></div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function Node({ node, edges, isCollapsed, isSelected, activeMenu, setActiveMenu, onPointerDown, onAdd, onTextChange, onColorChange, onToggleCollapse }) {
+      const [isHovered, setIsHovered] = useState(false);
+      const hasChildren = edges.some(e => e.source === node.id);
+      const getMenuPos = (dir) => {
+        if (dir === 'top') return { bottom: '110%', left: '50%', transform: 'translateX(-50%)' };
+        if (dir === 'bottom') return { top: '110%', left: '50%', transform: 'translateX(-50%)' };
+        if (dir === 'left') return { right: '110%', top: '50%', transform: 'translateY(-50%)' };
+        if (dir === 'right') return { left: '110%', top: '50%', transform: 'translateY(-50%)' };
+        return {};
+      };
+
+      return (
+        <div className={`absolute pointer-events-auto transition-shadow ${isSelected ? 'shadow-[0_0_0_4px_rgba(59,130,246,0.4)] rounded-lg' : ''}`} style={{ width: NODE_WIDTH, height: NODE_HEIGHT, transform: `translate(${node.x}px, ${node.y}px)` }} onPointerDown={onPointerDown} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
+          <ShapeSVG type={node.type} color={node.color} isSelected={isSelected} />
+          <div contentEditable suppressContentEditableWarning className="no-drag absolute inset-0 m-4 flex items-center justify-center text-center outline-none focus:ring-2 focus:ring-blue-400 focus:bg-white/40 rounded transition-all font-medium text-slate-800" onBlur={(e) => onTextChange(node.id, e.target.innerText)} style={{ wordBreak: 'break-word' }}>{node.text}</div>
+          
+          {hasChildren && <button className="no-drag absolute -bottom-3 -right-3 w-7 h-7 bg-white border border-slate-300 rounded-full flex items-center justify-center shadow-md text-slate-600 hover:bg-slate-100 z-30" onPointerDown={(e) => { e.stopPropagation(); onToggleCollapse(); }} title={isCollapsed ? "Expandir" : "Contraer"}>{isCollapsed ? <Plus size={16} /> : <Minus size={16} />}</button>}
+          {(isHovered || activeMenu?.type === 'color') && <button className="no-drag absolute -top-3 -right-3 w-7 h-7 bg-white border border-slate-300 rounded-full flex items-center justify-center shadow-md text-slate-600 hover:bg-slate-100 z-30" onPointerDown={(e) => { e.stopPropagation(); setActiveMenu({ nodeId: node.id, type: 'color' }); }} title="Colorear"><Palette size={14} /></button>}
+          
+          {activeMenu?.type === 'color' && (
+            <div className="no-drag absolute -top-12 left-1/2 -translate-x-1/2 z-40 bg-white border border-slate-200 rounded-lg shadow-xl p-1.5 flex gap-1" onPointerDown={(e) => e.stopPropagation()}>
+              {COLORS.map(c => <button key={c} className="w-6 h-6 rounded border border-slate-300 hover:scale-110 transition-transform" style={{ backgroundColor: c }} onPointerDown={(e) => { e.stopPropagation(); onColorChange(node.id, c); }} />)}
+            </div>
+          )}
+
+          {(isHovered || activeMenu?.type === 'add') && (
+            <>
+              <ArrowButton direction="top" icon={<ChevronUp size={20} />} onLeftClick={() => onAdd(node.id, 'top', node.type)} onRightClick={() => setActiveMenu({ nodeId: node.id, type: 'add', direction: 'top' })} />
+              <ArrowButton direction="right" icon={<ChevronRight size={20} />} onLeftClick={() => onAdd(node.id, 'right', node.type)} onRightClick={() => setActiveMenu({ nodeId: node.id, type: 'add', direction: 'right' })} />
+              <ArrowButton direction="bottom" icon={<ChevronDown size={20} />} onLeftClick={() => onAdd(node.id, 'bottom', node.type)} onRightClick={() => setActiveMenu({ nodeId: node.id, type: 'add', direction: 'bottom' })} />
+              <ArrowButton direction="left" icon={<ChevronLeft size={20} />} onLeftClick={() => onAdd(node.id, 'left', node.type)} onRightClick={() => setActiveMenu({ nodeId: node.id, type: 'add', direction: 'left' })} />
+            </>
+          )}
+
+          {activeMenu?.type === 'add' && (
+            <div className="no-drag absolute z-50 bg-white border border-slate-200 rounded-lg shadow-xl p-2 flex gap-2" style={getMenuPos(activeMenu.direction)} onPointerDown={(e) => e.stopPropagation()}>
+              <button className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" onPointerDown={(e) => { e.stopPropagation(); onAdd(node.id, activeMenu.direction, 'rectangle'); }}><Square size={24} /></button>
+              <button className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" onPointerDown={(e) => { e.stopPropagation(); onAdd(node.id, activeMenu.direction, 'circle'); }}><Circle size={24} /></button>
+              <button className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" onPointerDown={(e) => { e.stopPropagation(); onAdd(node.id, activeMenu.direction, 'pentagon'); }}><Pentagon size={24} /></button>
+              <button className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" onPointerDown={(e) => { e.stopPropagation(); onAdd(node.id, activeMenu.direction, 'rhombus'); }}><Diamond size={24} /></button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const ShapeSVG = ({ type, color, isSelected }) => {
+      const stroke = isSelected ? "#3b82f6" : "#475569";
+      const strokeW = isSelected ? "3" : "2";
+      return (
+        <svg width={NODE_WIDTH} height={NODE_HEIGHT} className="absolute inset-0 z-0 pointer-events-none drop-shadow-sm">
+          {type === 'rectangle' && <rect x="2" y="2" width={NODE_WIDTH - 4} height={NODE_HEIGHT - 4} rx="8" fill={color} stroke={stroke} strokeWidth={strokeW} />}
+          {type === 'circle' && <ellipse cx={NODE_WIDTH / 2} cy={NODE_HEIGHT / 2} rx={(NODE_WIDTH - 4) / 2} ry={(NODE_HEIGHT - 4) / 2} fill={color} stroke={stroke} strokeWidth={strokeW} />}
+          {type === 'pentagon' && <polygon points={`${NODE_WIDTH/2},2 ${NODE_WIDTH-2},${NODE_HEIGHT * 0.38} ${NODE_WIDTH * 0.8},${NODE_HEIGHT-2} ${NODE_WIDTH * 0.2},${NODE_HEIGHT-2} 2,${NODE_HEIGHT * 0.38}`} fill={color} stroke={stroke} strokeWidth={strokeW} />}
+          {type === 'rhombus' && <polygon points={`${NODE_WIDTH/2},2 ${NODE_WIDTH-2},${NODE_HEIGHT/2} ${NODE_WIDTH/2},${NODE_HEIGHT-2} 2,${NODE_HEIGHT/2}`} fill={color} stroke={stroke} strokeWidth={strokeW} />}
+        </svg>
+      );
+    };
+
+    const ArrowButton = ({ direction, icon, onLeftClick, onRightClick }) => {
+      const getStyle = () => {
+        if (direction === 'top') return { top: -14, left: '50%', transform: 'translateX(-50%)' };
+        if (direction === 'right') return { top: '50%', right: -14, transform: 'translateY(-50%)' };
+        if (direction === 'bottom') return { bottom: -14, left: '50%', transform: 'translateX(-50%)' };
+        if (direction === 'left') return { top: '50%', left: -14, transform: 'translateY(-50%)' };
+        return {};
+      };
+      return (
+        <button className="no-drag absolute z-30 bg-white border border-slate-300 rounded-full p-0.5 shadow-md text-slate-500 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-colors" style={getStyle()} onPointerDown={(e) => { e.stopPropagation(); if (e.button === 0) onLeftClick(); else if (e.button === 2) onRightClick(); }} onContextMenu={(e) => e.preventDefault()}>
+          {icon}
+        </button>
+      );
+    };
+
+    // --- RENDERIZADO ---
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
