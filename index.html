@@ -298,34 +298,98 @@
       const handleAddNode = (sourceId, direction, shapeType) => {
         const sourceNode = nodes.find(n => n.id === sourceId);
         let nx = sourceNode.x, ny = sourceNode.y;
-        if (direction === 'right') nx += 220; if (direction === 'left') nx -= 220;
-        if (direction === 'top') ny -= 160; if (direction === 'bottom') ny += 160;
+        let dx = 0, dy = 0;
+        
+        // Calcular los desplazamientos dependiendo de la dirección
+        if (direction === 'right') dx = 220;
+        if (direction === 'left') dx = -220;
+        if (direction === 'bottom') dy = 160;
+        if (direction === 'top') dy = -160;
+        
+        nx += dx;
+        ny += dy;
+        
         const newId = generateId();
-        setNodes([...nodes, { id: newId, type: shapeType, text: '', x: nx, y: ny, color: '#ffffff', comment: '' }]);
-        setEdges([...edges, { source: sourceId, target: newId }]);
+        
+        let newNodes = [...nodes];
+        let newEdges = [...edges];
+
+        // Detectar si hay figuras en el sitio exacto donde queremos crear la nueva
+        const occupiedNodes = nodes.filter(n => Math.abs(n.x - nx) < 50 && Math.abs(n.y - ny) < 50);
+
+        if (occupiedNodes.length > 0) {
+          // Si hay una figura delante, la "empujamos" hacia arriba
+          // junto con cualquier otra figura que ya estuviera por encima de ella para hacer hueco
+          newNodes = newNodes.map(n => {
+            // Solo empujamos las figuras que estén en la misma "columna" (mismo X)
+            if (Math.abs(n.x - nx) < 50) {
+              if ((direction === 'right' || direction === 'left' || direction === 'top') && n.y <= ny + 10) {
+                return { ...n, y: n.y - 160 }; // Sube hacia arriba
+              } else if (direction === 'bottom' && n.y >= ny - 10) {
+                return { ...n, y: n.y + 160 }; // Empuja hacia abajo por seguridad (si creas ramas hacia abajo)
+              }
+            }
+            return n;
+          });
+          
+          // NOTA: No modificamos las líneas antiguas.
+          // La figura que subió y la nueva central serán "hermanas", conectadas ambas a la madre.
+        }
+
+        newNodes.push({ id: newId, type: shapeType, text: '', x: nx, y: ny, color: '#ffffff', comment: '' });
+        newEdges.push({ source: sourceId, target: newId });
+
+        setNodes(newNodes);
+        setEdges(newEdges);
         setActiveMenu(null);
+        
         if (collapsedNodes.has(sourceId)) {
           const newCollapsed = new Set(collapsedNodes); newCollapsed.delete(sourceId); setCollapsedNodes(newCollapsed);
         }
       };
 
-      // --- CALCULADOR DE LÍNEAS OPTIMIZADO PARA DETENERSE EN EL PERÍMETRO ---
+      // --- CALCULADOR DE LÍNEAS OPTIMIZADO CON ANCLAJE INTELIGENTE ---
       const getOrthogonalPath = (sourceId, targetId) => {
-        const source = nodes.find(n => n.id === sourceId); const target = nodes.find(n => n.id === targetId);
+        const source = nodes.find(n => n.id === sourceId); 
+        const target = nodes.find(n => n.id === targetId);
         if (!source || !target) return '';
-        const sx = source.x + NODE_WIDTH / 2, sy = source.y + NODE_HEIGHT / 2;
-        let tx = target.x + NODE_WIDTH / 2, ty = target.y + NODE_HEIGHT / 2;
         
-        if (Math.abs(tx - sx) > Math.abs(ty - sy)) {
-          const midX = (sx + tx) / 2;
-          // Trunca la línea justo al llegar al borde izquierdo o derecho del nodo objetivo
-          const edgeX = tx > sx ? target.x - 6 : target.x + NODE_WIDTH + 6;
-          return `M ${sx} ${sy} L ${midX} ${sy} L ${midX} ${ty} L ${edgeX} ${ty}`;
-        } else {
-          const midY = (sy + ty) / 2;
-          // Trunca la línea justo al llegar al borde superior o inferior del nodo objetivo
-          const edgeY = ty > sy ? target.y - 6 : target.y + NODE_HEIGHT + 6;
-          return `M ${sx} ${sy} L ${sx} ${midY} L ${tx} ${midY} L ${tx} ${edgeY}`;
+        const sx = source.x + NODE_WIDTH / 2;
+        const sy = source.y + NODE_HEIGHT / 2;
+        const tx = target.x + NODE_WIDTH / 2;
+        const ty = target.y + NODE_HEIGHT / 2;
+        
+        // 1. Target está a la derecha (Sale por la derecha, entra por la izquierda)
+        if (target.x >= source.x + NODE_WIDTH) {
+          const startX = source.x + NODE_WIDTH;
+          const endX = target.x - 6; // -6 para la punta de la flecha
+          const midX = startX + (endX - startX) / 2;
+          return `M ${startX} ${sy} L ${midX} ${sy} L ${midX} ${ty} L ${endX} ${ty}`;
+        } 
+        // 2. Target está a la izquierda (Sale por la izquierda, entra por la derecha)
+        else if (target.x + NODE_WIDTH <= source.x) {
+          const startX = source.x;
+          const endX = target.x + NODE_WIDTH + 6;
+          const midX = startX + (endX - startX) / 2;
+          return `M ${startX} ${sy} L ${midX} ${sy} L ${midX} ${ty} L ${endX} ${ty}`;
+        }
+        // 3. Target está abajo (Sale por abajo, entra por arriba)
+        else if (target.y >= source.y + NODE_HEIGHT) {
+          const startY = source.y + NODE_HEIGHT;
+          const endY = target.y - 6;
+          const midY = startY + (endY - startY) / 2;
+          return `M ${sx} ${startY} L ${sx} ${midY} L ${tx} ${midY} L ${tx} ${endY}`;
+        }
+        // 4. Target está arriba (Sale por arriba, entra por abajo)
+        else if (target.y + NODE_HEIGHT <= source.y) {
+          const startY = source.y;
+          const endY = target.y + NODE_HEIGHT + 6;
+          const midY = startY + (endY - startY) / 2;
+          return `M ${sx} ${startY} L ${sx} ${midY} L ${tx} ${midY} L ${tx} ${endY}`;
+        }
+        // 5. Fallback por defecto si están solapadas
+        else {
+          return `M ${sx} ${sy} L ${tx} ${ty}`;
         }
       };
 
