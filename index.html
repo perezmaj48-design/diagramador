@@ -962,9 +962,9 @@
             <g>
               <polygon points={`${width/2},4 ${width-4},${height/2} ${width/2},${height-4} 4,${height/2}`} fill={palette.bg} stroke={palette.border} strokeWidth="2.5" strokeLinejoin="round" />
               <polygon points={`${width/2},4 ${width-4},${height/2} ${width/2},${height-4} 4,${height/2}`} fill="url(#sheen)" strokeLinejoin="round" />
-            </g>
-          )}
-        </svg>
+    </g>
+  )}
+</svg>
       );
     };
 
@@ -977,7 +977,26 @@
         return {};
       };
       return (
-        <button className="no-drag no-print absolute z-30 bg-white border border-slate-200 rounded-full p-1 shadow-md text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 transition-all hover:scale-115 active:scale-90" style={getStyle()} onPointerDown={(e) => { e.stopPropagation(); if (e.button === 0) onLeftClick(); else if (e.button === 2) onRightClick(); }} onContextMenu={(e) => e.preventDefault()}>
+        <button 
+          className="no-drag no-print absolute z-30 bg-white border border-slate-200 rounded-full p-1 shadow-md text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 transition-all hover:scale-115 active:scale-90" 
+          style={getStyle()} 
+          onPointerDown={(e) => { 
+            e.stopPropagation(); // Solo detenemos la propagación para que el lienzo no arrastre
+          }} 
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            // Ignoramos si pulsan Ctrl (Mac) o no es el botón principal
+            if (e.ctrlKey || e.button !== 0) return; 
+            onLeftClick();
+          }}
+          onContextMenu={(e) => { 
+            e.preventDefault(); 
+            e.stopPropagation(); 
+            onRightClick(); 
+          }}
+          title="Clic: Crear. Clic derecho: Elegir forma"
+        >
           {icon}
         </button>
       );
