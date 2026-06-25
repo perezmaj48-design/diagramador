@@ -10,17 +10,8 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   
-  <!-- Cargamos Babel -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <!-- PARCHE VITAL: Obligamos a Babel a usar el motor clásico de React para evitar errores de importación local -->
-  <script>
-    Babel.registerPreset('react-classic', {
-      presets: [
-        [Babel.availablePresets['react'], { runtime: 'classic' }]
-      ]
-    });
-  </script>
+  <!-- Cargamos versión estable de Babel que usa el runtime clásico por defecto -->
+  <script src="https://unpkg.com/@babel/standalone@7.23.0/babel.min.js"></script>
 
   <style>
     body { margin: 0; padding: 0; overflow: hidden; }
@@ -51,8 +42,7 @@
 <body class="bg-slate-50">
   <div id="root"></div>
 
-  <!-- Le indicamos al script que use nuestro motor clásico recién creado -->
-  <script type="text/babel" data-presets="react-classic">
+  <script type="text/babel">
     const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
     // --- ICONOS VECTORIALES (SVG en línea para máxima velocidad) ---
