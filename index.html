@@ -10,7 +10,17 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   
+  <!-- Cargamos Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- PARCHE VITAL: Obligamos a Babel a usar el motor clásico de React para evitar errores de importación local -->
+  <script>
+    Babel.registerPreset('react-classic', {
+      presets: [
+        [Babel.availablePresets['react'], { runtime: 'classic' }]
+      ]
+    });
+  </script>
 
   <style>
     body { margin: 0; padding: 0; overflow: hidden; }
@@ -41,7 +51,8 @@
 <body class="bg-slate-50">
   <div id="root"></div>
 
-  <script type="text/babel">
+  <!-- Le indicamos al script que use nuestro motor clásico recién creado -->
+  <script type="text/babel" data-presets="react-classic">
     const { useState, useEffect, useCallback, useMemo, useRef } = React;
 
     // --- ICONOS VECTORIALES (SVG en línea para máxima velocidad) ---
@@ -98,12 +109,10 @@
 
       const groups = { right: [], left: [], top: [], bottom: [] };
       
-      // NUEVO: Agrupamos leyendo explícitamente la dirección guardada en la línea
       children.forEach(c => {
         const edge = childEdges.find(e => e.target === c.id);
         let dir = edge.direction;
         
-        // Fallback por si cargamos un diagrama muy antiguo sin la propiedad 'direction'
         if (!dir) {
           const dx = c.x - parent.x;
           const dy = c.y - parent.y;
@@ -119,7 +128,6 @@
 
       let updatedNodes = [...currentNodes];
 
-      // Función que calcula el tamaño real de toda una rama (Bounding Box)
       const getSubtree = (rootId) => {
         const desc = new Set([rootId]);
         const queue = [rootId];
@@ -149,7 +157,7 @@
       const GAP_Y = 30; // Margen de seguridad vertical entre ramas
       const GAP_X = 40; // Margen de seguridad horizontal entre ramas
 
-      // Recalcular ramas que crecen en horizontal (apiladas verticalmente)
+      // Recalcular ramas que crecen en horizontal
       ['right', 'left'].forEach(side => {
         const group = groups[side];
         if (group.length === 0) return;
@@ -173,13 +181,13 @@
               if (info.st.desc.has(n.id)) return { ...n, y: n.y + dy };
               return n;
             });
-            info.node.y += dy; // Actualizar ref para cálculos futuros en el mismo ciclo
+            info.node.y += dy;
           }
           currentY += info.st.height + GAP_Y;
         });
       });
 
-      // Recalcular ramas que crecen en vertical (apiladas horizontalmente)
+      // Recalcular ramas que crecen en vertical
       ['top', 'bottom'].forEach(side => {
         const group = groups[side];
         if (group.length === 0) return;
@@ -212,7 +220,6 @@
       return updatedNodes;
     };
 
-    // BURBUJEO DE LAYOUT
     const updateTreeLayout = (startNodeId, currentNodes, currentEdges) => {
         let updatedNodes = [...currentNodes];
         let curr = startNodeId;
@@ -222,7 +229,6 @@
             return edge ? edge.source : null;
         };
 
-        // Recorremos desde el nodo modificado hacia la raíz
         while (curr) {
             updatedNodes = applyLocalLayout(curr, updatedNodes, currentEdges);
             curr = getParent(curr);
@@ -251,7 +257,9 @@
       const [fileHandle, setFileHandle] = useState(null); 
       
       const [showNewModal, setShowNewModal] = useState(false);
+      
       const fileInputRef = useRef(null);
+      const canvasRef = useRef(null);
 
       const handleDeleteSelected = useCallback(() => {
         if (selectedNodes.size === 0) return;
@@ -359,7 +367,6 @@
         return { visibleNodes: vNodes, visibleEdges: vEdges };
       }, [nodes, edges, collapsedNodes]);
 
-      // Función para iniciar la redimensión arrastrando la esquina
       const handleResizeStart = useCallback((e, nodeId) => {
         e.target.setPointerCapture(e.pointerId);
         const node = nodes.find(n => n.id === nodeId);
@@ -391,12 +398,12 @@
         if (mode === 'connect') {
           e.stopPropagation();
           e.target.setPointerCapture(e.pointerId);
-          const appContainer = document.getElementById('root').firstChild;
-          const rect = appContainer.getBoundingClientRect();
-          const canvasX = e.clientX - rect.left - pan.x;
-          const canvasY = e.clientY - rect.top - pan.y;
-
-          setDragInfo({ type: 'connect', id: nodeId, canvasX, canvasY });
+          if(canvasRef.current) {
+            const rect = canvasRef.current.getBoundingClientRect();
+            const canvasX = e.clientX - rect.left - pan.x;
+            const canvasY = e.clientY - rect.top - pan.y;
+            setDragInfo({ type: 'connect', id: nodeId, canvasX, canvasY });
+          }
           setActiveMenu(null);
           return;
         }
@@ -434,21 +441,20 @@
 
       const handlePointerMove = useCallback((e) => {
         if (dragInfo && dragInfo.type === 'connect') {
-          const appContainer = document.getElementById('root').firstChild;
-          const rect = appContainer.getBoundingClientRect();
-          const canvasX = e.clientX - rect.left - pan.x;
-          const canvasY = e.clientY - rect.top - pan.y;
-          setDragInfo(prev => ({ ...prev, canvasX, canvasY }));
+          if(canvasRef.current) {
+            const rect = canvasRef.current.getBoundingClientRect();
+            const canvasX = e.clientX - rect.left - pan.x;
+            const canvasY = e.clientY - rect.top - pan.y;
+            setDragInfo(prev => ({ ...prev, canvasX, canvasY }));
+          }
           return;
         }
 
-        // Lógica de cálculo al arrastrar el tirador de redimensión
         if (dragInfo && dragInfo.type === 'resize') {
           const dx = e.clientX - dragInfo.startX;
           const dy = e.clientY - dragInfo.startY;
           setNodes(prev => prev.map(n => {
             if (n.id === dragInfo.id) {
-              // Limita a un tamaño mínimo de 80x60 para que no se deforme
               return { ...n, width: Math.max(80, dragInfo.startW + dx), height: Math.max(60, dragInfo.startH + dy) };
             }
             return n;
@@ -479,7 +485,6 @@
       }, [dragInfo, selectionBox, selectedNodes, pan]);
 
       const handlePointerUp = useCallback((e) => {
-        // Al terminar de redimensionar, le pedimos al motor de Auto-Layout que reordene la rama
         if (dragInfo && dragInfo.type === 'resize') {
           e.target.releasePointerCapture(e.pointerId);
           const resizedId = dragInfo.id;
@@ -490,56 +495,56 @@
 
         if (dragInfo && dragInfo.type === 'connect') {
           e.target.releasePointerCapture(e.pointerId);
-          const appContainer = document.getElementById('root').firstChild;
-          const rect = appContainer.getBoundingClientRect();
-          const dropX = e.clientX - rect.left - pan.x;
-          const dropY = e.clientY - rect.top - pan.y;
+          if (canvasRef.current) {
+            const rect = canvasRef.current.getBoundingClientRect();
+            const dropX = e.clientX - rect.left - pan.x;
+            const dropY = e.clientY - rect.top - pan.y;
 
-          const targetNode = visibleNodes.find(n => 
-              dropX >= n.x && dropX <= n.x + (n.width || NODE_WIDTH) &&
-              dropY >= n.y && dropY <= n.y + (n.height || NODE_HEIGHT)
-          );
+            const targetNode = visibleNodes.find(n => 
+                dropX >= n.x && dropX <= n.x + (n.width || NODE_WIDTH) &&
+                dropY >= n.y && dropY <= n.y + (n.height || NODE_HEIGHT)
+            );
 
-          if (targetNode && targetNode.id !== dragInfo.id) {
-            const exists = edges.some(edge => edge.source === dragInfo.id && edge.target === targetNode.id);
-            
-            const wouldCreateCycle = (startId, endId) => {
-                const visited = new Set();
-                const queue = [endId];
-                while(queue.length > 0) {
-                    const current = queue.shift();
-                    if (current === startId) return true;
-                    if (!visited.has(current)) {
-                        visited.add(current);
-                        edges.filter(edge => edge.source === current).forEach(edge => queue.push(edge.target));
-                    }
-                }
-                return false;
-            };
+            if (targetNode && targetNode.id !== dragInfo.id) {
+              const exists = edges.some(edge => edge.source === dragInfo.id && edge.target === targetNode.id);
+              
+              const wouldCreateCycle = (startId, endId) => {
+                  const visited = new Set();
+                  const queue = [endId];
+                  while(queue.length > 0) {
+                      const current = queue.shift();
+                      if (current === startId) return true;
+                      if (!visited.has(current)) {
+                          visited.add(current);
+                          edges.filter(edge => edge.source === current).forEach(edge => queue.push(edge.target));
+                      }
+                  }
+                  return false;
+              };
 
-            if (exists) {
-                setToast('Esta conexión ya existe');
-            } else if (wouldCreateCycle(dragInfo.id, targetNode.id)) {
-                setToast('Acción bloqueada: No se pueden crear bucles infinitos');
-            } else {
-                // Si conectamos manual, detectamos la dirección inicial para evitar que se mueva en el futuro
-                const sourceNode = nodes.find(n => n.id === dragInfo.id);
-                const dx = targetNode.x - sourceNode.x;
-                const dy = targetNode.y - sourceNode.y;
-                let dir = 'right';
-                if (Math.abs(dx) >= Math.abs(dy)) {
-                    dir = dx >= 0 ? 'right' : 'left';
-                } else {
-                    dir = dy >= 0 ? 'bottom' : 'top';
-                }
-                
-                const newEdges = [...edges, { source: dragInfo.id, target: targetNode.id, direction: dir }];
-                const newNodes = updateTreeLayout(dragInfo.id, nodes, newEdges);
-                setNodes(newNodes);
-                setEdges(newEdges);
-                setToast('Figuras conectadas con éxito');
+              if (exists) {
+                  setToast('Esta conexión ya existe');
+              } else if (wouldCreateCycle(dragInfo.id, targetNode.id)) {
+                  setToast('Acción bloqueada: No se pueden crear bucles infinitos');
+              } else {
+                  const sourceNode = nodes.find(n => n.id === dragInfo.id);
+                  const dx = targetNode.x - sourceNode.x;
+                  const dy = targetNode.y - sourceNode.y;
+                  let dir = 'right';
+                  if (Math.abs(dx) >= Math.abs(dy)) {
+                      dir = dx >= 0 ? 'right' : 'left';
+                  } else {
+                      dir = dy >= 0 ? 'bottom' : 'top';
+                  }
+                  
+                  const newEdges = [...edges, { source: dragInfo.id, target: targetNode.id, direction: dir }];
+                  const newNodes = updateTreeLayout(dragInfo.id, nodes, newEdges);
+                  setNodes(newNodes);
+                  setEdges(newEdges);
+                  setToast('Figuras conectadas con éxito');
+              }
+              setTimeout(() => setToast(''), 3000);
             }
-            setTimeout(() => setToast(''), 3000);
           }
           
           setDragInfo(null);
@@ -651,17 +656,14 @@
       const handleAddNode = (sourceId, direction, shapeType) => {
         const sourceNode = nodes.find(n => n.id === sourceId);
         
-        // Copia el ancho y el alto del padre (o usa el por defecto)
         const w = sourceNode.width || NODE_WIDTH;
         const h = sourceNode.height || NODE_HEIGHT;
 
         let nx = sourceNode.x, ny = sourceNode.y;
         
-        // Buscamos los hijos existentes en esa misma dirección para poner el nuevo al final
         const existingEdgesInDir = edges.filter(e => e.source === sourceId && e.direction === direction);
         const existingChildren = nodes.filter(n => existingEdgesInDir.some(e => e.target === n.id));
         
-        // Ajustamos la coordenada primaria y obligamos a que se sitúe a la cola
         if (direction === 'right') { 
             nx += w + 80; 
             ny = existingChildren.length > 0 ? Math.max(...existingChildren.map(c => c.y)) + h + 50 : ny;
@@ -682,7 +684,6 @@
         const newId = generateId();
         
         let newNodes = [...nodes, { id: newId, type: shapeType, text: '', x: nx, y: ny, width: w, height: h, color: '#ffffff', comment: '' }];
-        // NUEVO: Marcamos explícitamente la dirección al crear la línea para evitar bugs matemáticos futuros
         let newEdges = [...edges, { source: sourceId, target: newId, direction: direction }]; 
 
         newNodes = updateTreeLayout(sourceId, newNodes, newEdges);
@@ -696,7 +697,6 @@
         }
       };
 
-      // --- CALCULADOR DE LÍNEAS OPTIMIZADO CON ANCLAJE DINÁMICO DE TAMAÑO ---
       const getOrthogonalPath = (sourceId, targetId) => {
         const source = nodes.find(n => n.id === sourceId); 
         const target = nodes.find(n => n.id === targetId);
@@ -712,28 +712,24 @@
         const tx = target.x + tw / 2;
         const ty = target.y + th / 2;
         
-        // 1. Target está a la derecha
         if (target.x >= source.x + sw) {
           const startX = source.x + sw;
           const endX = target.x - 6; 
           const midX = startX + (endX - startX) / 2;
           return `M ${startX} ${sy} L ${midX} ${sy} L ${midX} ${ty} L ${endX} ${ty}`;
         } 
-        // 2. Target está a la izquierda
         else if (target.x + tw <= source.x) {
           const startX = source.x;
           const endX = target.x + tw + 6;
           const midX = startX + (endX - startX) / 2;
           return `M ${startX} ${sy} L ${midX} ${sy} L ${midX} ${ty} L ${endX} ${ty}`;
         }
-        // 3. Target está abajo
         else if (target.y >= source.y + sh) {
           const startY = source.y + sh;
           const endY = target.y - 6;
           const midY = startY + (endY - startY) / 2;
           return `M ${sx} ${startY} L ${sx} ${midY} L ${tx} ${midY} L ${tx} ${endY}`;
         }
-        // 4. Target está arriba
         else if (target.y + th <= source.y) {
           const startY = source.y;
           const endY = target.y + th + 6;
@@ -745,7 +741,7 @@
       };
 
       return (
-        <div className={`w-full h-screen relative bg-slate-50 overflow-hidden font-sans select-none ${mode === 'connect' ? 'cursor-crosshair' : ''}`} onPointerDown={handlePointerDownCanvas} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}>
+        <div ref={canvasRef} className={`w-full h-screen relative bg-slate-50 overflow-hidden font-sans select-none ${mode === 'connect' ? 'cursor-crosshair' : ''}`} onPointerDown={handlePointerDownCanvas} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp}>
           
           <div className="no-print absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-white/95 backdrop-blur shadow-[0_8px_30px_rgb(0,0,0,0.08)] rounded-xl border border-slate-200/80 p-1.5 flex gap-1 items-center" onPointerDown={(e) => e.stopPropagation()}>
             <button className={`p-2 rounded-lg transition-all ${mode === 'pan' ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => setMode('pan')} title="Mover Lienzo (Mano)"><Hand size={20} /></button>
@@ -792,7 +788,7 @@
 
             <div className="absolute inset-0 pointer-events-none z-20">
               {visibleNodes.map(node => (
-                <Node key={node.id} mode={mode} node={node} edges={edges} isCollapsed={collapsedNodes.has(node.id)} isSelected={selectedNodes.has(node.id)} activeMenu={activeMenu?.nodeId === node.id ? activeMenu : null} setActiveMenu={setActiveMenu} onPointerDown={(e) => handlePointerDownNode(e, node.id)} onAdd={handleAddNode} onTextChange={(id, txt) => setNodes(prev => prev.map(n => n.id === id ? { ...n, text: txt } : n))} onColorChange={(id, clr) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, color: clr } : n)); setActiveMenu(null); }} onCommentChange={(id, cmt) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, comment: cmt } : n)); }} onToggleCollapse={() => { const nc = new Set(collapsedNodes); nc.has(node.id) ? nc.delete(node.id) : nc.add(node.id); setCollapsedNodes(nc); }} onResizeStart={handleResizeStart} />
+                <DiagramNode key={node.id} mode={mode} node={node} edges={edges} isCollapsed={collapsedNodes.has(node.id)} isSelected={selectedNodes.has(node.id)} activeMenu={activeMenu?.nodeId === node.id ? activeMenu : null} setActiveMenu={setActiveMenu} onPointerDown={(e) => handlePointerDownNode(e, node.id)} onAdd={handleAddNode} onTextChange={(id, txt) => setNodes(prev => prev.map(n => n.id === id ? { ...n, text: txt } : n))} onColorChange={(id, clr) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, color: clr } : n)); setActiveMenu(null); }} onCommentChange={(id, cmt) => { setNodes(prev => prev.map(n => n.id === id ? { ...n, comment: cmt } : n)); }} onToggleCollapse={() => { const nc = new Set(collapsedNodes); nc.has(node.id) ? nc.delete(node.id) : nc.add(node.id); setCollapsedNodes(nc); }} onResizeStart={handleResizeStart} />
               ))}
             </div>
 
@@ -828,7 +824,7 @@
       );
     }
 
-    function Node({ mode, node, edges, isCollapsed, isSelected, activeMenu, setActiveMenu, onPointerDown, onAdd, onTextChange, onColorChange, onCommentChange, onToggleCollapse, onResizeStart }) {
+    function DiagramNode({ mode, node, edges, isCollapsed, isSelected, activeMenu, setActiveMenu, onPointerDown, onAdd, onTextChange, onColorChange, onCommentChange, onToggleCollapse, onResizeStart }) {
       const [isHovered, setIsHovered] = useState(false);
       const hasChildren = edges.some(e => e.source === node.id);
       
@@ -962,9 +958,9 @@
             <g>
               <polygon points={`${width/2},4 ${width-4},${height/2} ${width/2},${height-4} 4,${height/2}`} fill={palette.bg} stroke={palette.border} strokeWidth="2.5" strokeLinejoin="round" />
               <polygon points={`${width/2},4 ${width-4},${height/2} ${width/2},${height-4} 4,${height/2}`} fill="url(#sheen)" strokeLinejoin="round" />
-    </g>
-  )}
-</svg>
+            </g>
+          )}
+        </svg>
       );
     };
 
@@ -981,12 +977,11 @@
           className="no-drag no-print absolute z-30 bg-white border border-slate-200 rounded-full p-1 shadow-md text-slate-400 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 transition-all hover:scale-115 active:scale-90" 
           style={getStyle()} 
           onPointerDown={(e) => { 
-            e.stopPropagation(); // Solo detenemos la propagación para que el lienzo no arrastre
+            e.stopPropagation(); 
           }} 
           onClick={(e) => {
             e.stopPropagation();
             e.preventDefault();
-            // Ignoramos si pulsan Ctrl (Mac) o no es el botón principal
             if (e.ctrlKey || e.button !== 0) return; 
             onLeftClick();
           }}
@@ -1002,7 +997,6 @@
       );
     };
 
-    // --- ENLACE A RAÍZ ---
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
